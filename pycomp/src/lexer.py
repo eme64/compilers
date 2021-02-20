@@ -13,14 +13,32 @@ class CharSets:
         lower = list(range(ord('a'), ord('z')+1))
         upper = list(range(ord('A'), ord('Z')+1))
         return lower+upper
+    
+    def hex(self):
+        lower = list(range(ord('a'), ord('f')+1))
+        upper = list(range(ord('A'), ord('F')+1))
+        return self.digit() + lower + upper
+
 
     def bracket(self):
         return [ord(c) for c in "()[]{}"]
 
+    def legible(self):
+        top = list(range(ord(' '), ord('~')+1))
+        return top + ["\t"]
+    
+    def all(self):
+        return list(range(256))
+    
+    def minus(self, base, sub):
+        rhs = set(sub)
+        return [c for c in base if not c in rhs]
+
+
 class Lexer:
     """FSM based lexer
     
-    state: one of finetely many, "init" is the initial state
+    state: one of finetely many, "init" is the initial state, and the neutral state whenever no particular token is being tokenized
     start: points to first character of current token
     action(line,linenum,state,start,pos): decide what to do with newly added character at position pos.
     tokens: list of already processed tokens, can append new tokens
@@ -63,13 +81,14 @@ class Lexer:
 
             for c in characters:
                 if c in sd:
-                    print(f"Error: already found {c} '{chr(c)}' in state_dict for state '{state}'")
+                    print(f"LexError: already found {c} '{chr(c)}' in state_dict for state '{state}'")
                     quit()
                 sd[c] = action
             
 
     def lex(self, seq, filename):
         """lexes a sequence seq, returns a list of tokens. filename for error messages"""
+        self.filename = filename
         self.tokens = []
         self.start = 0
         self.line = 0
@@ -77,11 +96,12 @@ class Lexer:
         self.pos = 0
 
         lines = [l+"\n" for l in seq.splitlines()]
-        
+        self.lines = lines
+
         while True:
             # check if rule available for state:
             if not self.state in self.state_dict:
-                print(f"Error: state '{self.state}' has no rules")
+                print(f"LexError (internal): state '{self.state}' has no rules")
                 quit()
             
             sd = self.state_dict[self.state]
@@ -94,10 +114,8 @@ class Lexer:
             elif -1 in sd:
                 action = sd[-1]
             else:
-                print(f"Error: unexpected character {c} '{chr(c)}' for state {self.state}")
-                print(f"in {filename}:{self.line}")
-                print(lines[self.line][:-1])
-                print(" "*self.pos+"^")
+                print(f"LexError: unexpected character {c} '{chr(c)}' for state {self.state}")
+                self.mark_pos()
                 quit()
             
             accept, state, start = action(lines[self.line], self.line, self.state, self.start, self.pos)
@@ -110,28 +128,53 @@ class Lexer:
                 if self.pos >= len(lines[self.line]):
                     # end of line, already passed "\n"
                     if self.state != "init":
-                        print(f"Error: end of line not 'init' but '{self.state}' state for line {self.line}")
+                        print(f"LexError: end of line not 'init' but '{self.state}' state for line {self.line}")
                         print(lines[self.line])
                         quit()
                     self.start = 0
                     self.pos = 0
                     self.line += 1
 
+                    if self.line >= len(lines):
+                        break # end of file
 
         return self.tokens
+    
+    def mark_pos(self):
+        print(f"in {self.filename}:{self.line}")
+        print(self.lines[self.line][:-1])
+        print(" "*self.pos+"^")
+
+    def mark_start(self):
+        print(f"in {self.filename}:{self.line}")
+        print(self.lines[self.line][:-1])
+        print(" "*self.start+"^")
+ 
 
 def main():
     print("hello world")
     l = Lexer()
 
-    seq = """
-    var int x;
-    ;;;
-    ;
-
-    x = 5;
-    print(x);
-    """
+    seq = ("var int x;\n"
+           ";;;\n"
+           ";\n\n"
+           "x = 5.346234;\n"
+           "print(x);\n"
+           "\n"
+           "function x(int a, int b, int c) {\n"
+           "   return a+b+c;\n"
+           "};\n"
+           "x = a << b;\n"
+           "a++;\n"
+           "x = a * b + c / d + x(abc->xyz) + *yi;\n"
+           "a = a-- + x ^ z ||& ~!u;\n"
+           "x = \"hello world\";\n"
+           "y = \"asdf \\n \\\" \\\\ asdff\";\n"
+           "z = \" hello \\x41 \\x3B \\\" \\n \";\n"
+           "h=x # asdfasdfasdf asdfasdf\n"
+           "h=x# # # \\n; hello\n"
+           "end\n"
+           )
     
     cs = CharSets()
 
@@ -156,17 +199,24 @@ def main():
     def action_comma(line,linenum,state,start,pos):
         l.push_token("comma", ",")
         return (True,"init", pos+1)
+
+    # brackets:
+    def action_bracket(line,linenum,state,start,pos):
+        value = line[start:pos+1]
+        l.push_token("bracket", value)
+        return (True,"init", pos+1)
     
     # operators:
     #   some are single char, some multichar.
     #   list below is then converted into query structure
     operators = ["=", "==", "<", ">", "<=", ">=", "!", "!=",
-                 "&", "&&", "|" "||", "%", "^", ">>", "<<",
+                 "&", "&&", "|","||", "%", "^", ">>", "<<",
                  "*", "/", "~",
-                 "+", "++", "-", "--", "->", ".", "+=", "-="]
+                 "+", "++", "-", "--", "->", ".", "+=", "-=",
+                 ]
     
     operator_char = list(set([ord(c) for o in operators for c in o]))
-
+    
     operator_tree = {}
 
     for o in operators:
@@ -180,16 +230,128 @@ def main():
         # place an item there
         t[0] = o
 
+    def check_operator(last,curr):
+        """check if operator last is extensible with character curr
+        returns "extensible", "last", or "error"
+        last is string
+        curr is ord (-1 if just want to check if last is valid or not)
+        """
+        t = operator_tree
+        # traverse tree
+        for char in last:
+            c = ord(char)
+            if not c in t:
+                return "error"
+            t = t[c]
+
+        if curr in t:
+            return "extensible"
+        elif 0 in t:
+            return "last" # 0 here means item was placed
+        else:
+            return "error"
+
+
     def action_operator(line,linenum,state,start,pos):
-        l.push_token("operator", line[start:pos+1])
-        return (True, "init", pos+1)
-        # TODO: implement correctly
+        last = line[start:pos]
+        curr = line[pos]
+        res = check_operator(last, ord(curr))
+
+        if res == "extensible":
+            return (True, "oper", start)
+        elif res == "last":
+            l.push_token("operator", last)
+            return (False, "init", pos)
+        else:
+            print(f"LexError: syntax error around operator")
+            l.mark_pos()
+            quit()
+
+
+
+    def action_operator_end(line,linenum,state,start,pos):
+        value = line[start:pos]
+        res = check_operator(value, -1) # -1 as as sentinel/dummy
+        if res == "last":
+            l.push_token("operator", value)
+            return (False,"init", pos)
+        else:
+            print(f"LexError: syntax error around operator")
+            l.mark_start()
+            quit()
 
     # numbers:
     def action_digit(line,linenum,state,start,pos):
         return (True, "num", start)
-        # TODO: implement correctly
+    def action_num(line,linenum,state,start,pos):
+        return (True, "num", start)
+    def action_num_end(line,linenum,state,start,pos):
+        value = line[start:pos]
+        
+        # check validity of number
+        parts = value.split(".")
+        if len(parts) > 2:
+            print(f"LexError: syntax error around number '{value}'")
+            l.mark_start()
+            quit()
+
+        l.push_token("num", value)
+        return (False,"init", pos)
+
+    # strings:
+    #    for now only on one line
+    def action_string(line,linenum,state,start,pos):
+        return (True, "str", start)
+    def action_string_escape(line,linenum,state,start,pos):
+        return (True, "str_esc", start)
+    def action_string_escape_h1(line,linenum,state,start,pos):
+        return (True, "str_esc_h1", start)
+    def action_string_escape_h2(line,linenum,state,start,pos):
+        return (True, "str_esc_h2", start)
+    def action_string_end(line,linenum,state,start,pos):
+        value = line[start+1:pos]
+        
+        # check string for escape sequences:
+        res = []
+        state = None
+        xval = ""
+        for c in value:
+            if state is None:
+                if c != "\\":
+                    res.append(c)
+                else:
+                    state = "esc"
+            elif state == "esc":
+                d = {"n":"\n", "t":"\t", "\'":"\'", "\"": "\"","\\":"\\"}
+                if c in d:
+                    res.append(d[c])
+                    state = None
+                elif c == "x":
+                    state = "h1"
+                    xval = ""
+                else:
+                    print(c, ord(c), value)
+                    assert(False)
+            elif state == "h1": # for \x
+                xval = c
+                state = "h2"
+            elif state == "h2": # for \x
+                xval += c
+                state = None
+                res.append(chr( int(xval, 16) ))
+        
+        # join the character array back together
+        value = "".join(res)
+
+        l.push_token("str", value)
+        return (True,"init", pos+1)
     
+    # comment:
+    #   goes from hashtag # all the way to end of line
+    def action_comment(line,linenum,state,start,pos):
+        return (True, "com", pos)
+    def action_comment_end(line,linenum,state,start,pos):
+        return (True, "init", pos)
 
     l.set_rules([
         # whitespaces:
@@ -197,6 +359,8 @@ def main():
         
         # operators
         ("init", operator_char,                           action_operator),
+        ("oper", operator_char,                           action_operator),
+        ("oper", [-1],                                    action_operator_end),
         
         # names:
         ("init", cs.letter() + [ord("_")],                action_name),
@@ -208,7 +372,27 @@ def main():
         ("init", [ord(",")],                              action_comma),
         
         # numbers
-        ("init", cs.digit(),   action_digit),
+        ("init", cs.digit(),                              action_digit),
+        ("num",  cs.digit() + [ord(".")],                 action_num),
+        ("num",  [-1],                                    action_num_end),
+        
+        # brackets
+        ("init", cs.bracket(),                            action_bracket),
+        
+        # strings:
+        ("init", [ord("\"")],                             action_string),
+        ("str",  [ord("\\")],                             action_string_escape),
+        ("str",  [ord("\"")],                             action_string_end),
+        ("str",  cs.minus(cs.legible(), [ord("\""), ord("\\")]),    action_string),
+        ("str_esc",    [ord(c) for c in "\"\'nt\\"],                action_string),
+        ("str_esc",    [ord("x")],                                  action_string_escape_h1),
+        ("str_esc_h1", cs.hex(),                                    action_string_escape_h2),
+        ("str_esc_h2", cs.hex(),                                    action_string),
+        
+        # comment:
+        ("init", [ord("#")],                             action_comment),
+        ("com",  cs.minus(cs.all(), [ord("\n")]),        action_comment),
+        ("com",  [ord("\n")],                            action_comment_end),
         ])
 
     tokens = l.lex(seq, "test.script")
