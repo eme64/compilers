@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import sys
+
 class CharSets:
     """Member functions provide common lists of characters"""
 
@@ -47,7 +49,6 @@ class Lexer:
 
     def __init__(self):
         """Constructor"""
-        print("new lexer")
         self.rules = []
         self.state_dict = {}
     
@@ -57,7 +58,7 @@ class Lexer:
         internally, also start position in line are remembered
         """
         token = (name,value,self.line,self.start)
-        print("push_token:",token)
+        #print("push_token:",token)
         self.tokens.append(token)
 
 
@@ -149,6 +150,13 @@ class Lexer:
         print(f"in {self.filename}:{self.line}")
         print(self.lines[self.line][:-1])
         print(" "*self.start+"^")
+
+    def mark_token(self,token):
+        tname,tval,tline,tstart = token
+        print(f"in {self.filename}:{tline}")
+        print(self.lines[tline][:-1])
+        print(" "*tstart+"^")
+
 
 
 
@@ -384,36 +392,39 @@ class BasicLexer(Lexer):
             ])
 
 
-
-def main():
-    print("hello world")
+def main(argv):
     l = BasicLexer()
-
-    seq = ("var int x;\n"
-           ";;;\n"
-           ";\n\n"
-           "x = 5.346234;\n"
-           "print(x);\n"
-           "\n"
-           "function x(int a, int b, int c) {\n"
-           "   return a+b+c;\n"
-           "};\n"
-           "x = a << b;\n"
-           "a++;\n"
-           "x = a * b + c / d + x(abc->xyz) + *yi;\n"
-           "a = a-- + x ^ z ||& ~!u;\n"
-           "x = \"hello world\";\n"
-           "y = \"asdf \\n \\\" \\\\ asdff\";\n"
-           "z = \" hello \\x41 \\x3B \\\" \\n \";\n"
-           "h=x # asdfasdfasdf asdfasdf\n"
-           "h=x# # # \\n; hello\n"
-           "end\n"
-           )
     
-    tokens = l.lex(seq, "test.script")
+    if len(argv) > 0:
+        filename = argv[0]
+        with open(filename, "r") as f:
+            seq = f.read()
+    else:
+        filename = "test.script"
+        seq = ("var int x;\n"
+               ";;;\n"
+               ";\n\n"
+               "x = 5.346234;\n"
+               "print(x);\n"
+               "\n"
+               "function x(int a, int b, int c) {\n"
+               "   return a+b+c;\n"
+               "};\n"
+               "x = a << b;\n"
+               "a++;\n"
+               "x = a * b + c / d + x(abc->xyz) + *yi;\n"
+               "a = a-- + x ^ z ||& ~!u;\n"
+               "x = \"hello world\";\n"
+               "y = \"asdf \\n \\\" \\\\ asdff\";\n"
+               "z = \" hello \\x41 \\x3B \\\" \\n \";\n"
+               "h=x # asdfasdfasdf asdfasdf\n"
+               "h=x# # # \\n; hello\n"
+               "end\n"
+               )
+    
+    tokens = l.lex(seq, filename)
     print(tokens)
 
 if __name__ == "__main__":
-    main()
-
+    main(sys.argv[1:])
 

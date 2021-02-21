@@ -1,0 +1,21 @@
+var int x;
+;;;
+;
+
+x = 5.346234;
+print(x);
+
+function x(int a, int b, int c) {
+   return a+b+c;
+};
+x = a << b;
+a++;
+x = a * b + c / d + x(abc->xyz) + *yi;
+a = a-- + x ^ z ||& ~!u;
+x = "hello world";
+y = "asdf \n \" \\ asdff";
+z = " hello \x41 \x3B \" \n ";
+h=x # asdfasdfasdf asdfasdf
+h=x# # # \n; hello
+end
+

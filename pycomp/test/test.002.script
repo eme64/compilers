@@ -1,0 +1,8 @@
+var int hello;
+var int asdf;
+var int x;
+
+function int run(int a, int b, int c) {
+    return a+b+c;
+}
+
