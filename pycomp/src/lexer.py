@@ -208,10 +208,11 @@ class BasicLexer(Lexer):
         # operators:
         #   some are single char, some multichar.
         #   list below is then converted into query structure
-        operators = ["=", "==", "<", ">", "<=", ">=", "!", "!=",
+        operators = ["==", "<", ">", "<=", ">=", "!", "!=",
                      "&", "&&", "|","||", "%", "^", ">>", "<<",
                      "*", "/", "~",
-                     "+", "++", "-", "--", "->", ".", "+=", "-=",
+                     "+", "++", "-", "--", "->", ".",
+                     "=","+=", "-=","/=","*=",
                      ]
         
         operator_char = list(set([ord(c) for o in operators for c in o]))

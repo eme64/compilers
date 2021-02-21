@@ -3,6 +3,9 @@ var int asdf;
 var int x;
 
 function int run(int a, int b, int c) {
+    x = a*b+c*d;
+    y = a||b&&c||d&&e;
+    z = a = b = c += d -= e = a(b,c);
     return a+b+c;
 }
 

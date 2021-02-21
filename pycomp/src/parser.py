@@ -156,12 +156,92 @@ def main(argv):
 
         return cur_nodes
     
-    def rule_delimiter_factory(token_dict):
-        pass # TODO
+    def rule_delimiter_factory(token_list):
+        """generates a rule that splits lists whereever a token is matched
+        token_list = list of (tname,tval)
+        if no such token is found the nodelist will be untouched.
+        else, we list all n tokens and all n+1 sublists.
+        """
+        token_dict = {t:0 for t in token_list}
 
-    p.set_rules([
+        def rule(nodes, lex):
+            # check for occurances:
+            occ = 0
+            for pt in nodes:
+                isToken,payload = pt
+                if isToken:
+                    tname,tval,_,_ = payload
+                    key = (tname,tval)
+                    if key in token_dict:
+                        occ += 1
+
+            if occ == 0:
+                return nodes
+
+            # split the list
+            tokens = []
+            listoflists = []
+            cur_nodes = []
+            for pt in nodes:
+                isToken,payload = pt
+                if isToken:
+                    tname,tval,_,_ = payload
+                    key = (tname,tval)
+                    if key in token_dict:
+                        tokens.append(payload)
+                        listoflists.append(cur_nodes)
+                        cur_nodes = []
+                    else:
+                        cur_nodes.append(pt)
+                else:
+                    cur_nodes.append(pt)
+            # append the n+1 st list
+            listoflists.append(cur_nodes)
+
+            new_node = (False,(tokens,listoflists))
+            return [new_node]
+
+
+        return rule
+
+    rules = [ 
         rule_brackets,
-        ])
+        rule_delimiter_factory([("semicolon",";")]),
+        rule_delimiter_factory([("comma",",")]),
+        ]
+    
+    # list of operators (lowest precedence first):
+    list_of_operators = [
+            # assign
+            ["=","+=","-=","/=","*="],
+            # logic
+            ["||"],
+            ["&&"],
+            # bitwise
+            ["|"],
+            ["^"],
+            ["&"],
+            # equal
+            ["==","!="],
+            # cmp
+            ["<", ">", "<=", ">="],
+            # bitwise shift
+            ["<<",">>"],
+            # arith
+            ["+","-"],
+            ["*","/","%"],
+            # unary not
+            ["!","~"],
+            # inc, dec
+            ["++","--"],
+            # pointer
+            ["->","."],
+            ]
+
+    for l in list_of_operators:
+        rules.append(rule_delimiter_factory([("operator",i) for i in l]))
+
+    p.set_rules(rules)
     
     pt = p.parse(tokens, l)
     print(pt)
