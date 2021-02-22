@@ -407,23 +407,90 @@ def ptparse_getlist(pt,lex,k):
 # # ASTObjects for parsing #
 # ##########################
 
+
+class ASTObjectFunction(ASTObject):
+    """
+    Function ast object
+    """
+
+    def __init__(self,pt,lex,parent):
+        # function type name (bracket-body) {bracket-body}
+        l = ptparse_getlist(pt, lex, 5) # get the 5 elements
+        print(l)
+        if l is None:
+            print("PTParseError: syntax error: expected 'function type name (args) {body}'")
+            ptparse_markfirsttokeninlist([pt],lex)
+            quit()
+
+        # check that first is function
+        if ptparse_isToken(l[0],[("name","function")]):
+            pass
+        else:
+            print("PTParseError: syntax error: expected 'function'")
+            ptparse_markfirsttokeninlist([l[0]],lex)
+
+        # check type:
+        # TODO l[1]
+
+        # check name:
+        if ptparse_isToken(l[2],[("name",None)]):
+            self.name_token = l[2][1]
+            self.name = l[2][1][1]
+            #print(self.name)
+            #lex.mark_token(self.name_token)
+        
+        # check args:
+        # TODO l[3]
+        # check body:
+        # TODO l[4]
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[Function] {self.name}")
+
+class ASTObjectStruct(ASTObject):
+    """
+    Struct ast object
+    """
+
+    def __init__(self,pt,lex,parent):
+        # struct name {bracket-body}
+        l = ptparse_getlist(pt, lex, 3) # get the 3 elements
+        print(l)
+        if l is None:
+            print("PTParseError: syntax error: expected 'struct name {body}'")
+            ptparse_markfirsttokeninlist([pt],lex)
+            quit()
+
+        # check that first is function
+        if ptparse_isToken(l[0],[("name","struct")]):
+            pass
+        else:
+            print("PTParseError: syntax error: expected 'function'")
+            ptparse_markfirsttokeninlist([l[0]],lex)
+
+        # check name:
+        if ptparse_isToken(l[1],[("name",None)]):
+            self.name_token = l[1][1]
+            self.name = l[1][1][1]
+            #print(self.name)
+            #lex.mark_token(self.name_token)
+        
+        # check body:
+        # TODO l[2]
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[Struct] {self.name}")
+
 class ASTObjectExpression(ASTObject):
     """
     Expression ast object
     """
 
     def __init__(self,pt,lex,parent):
-        pass
+        pass # TODO
  
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[Expression]")
-        #print(" "*depth + f"[{'var' if self.isMutable else 'const'}] {self.name}")
-        #print(" "*depth + f"type:")
-        #if self.expression is not None:
-        #    print(" "*depth + f"expression:")
-        #    self.expression.print_ast(depth = depth+step)
-
-
 
 class ASTObjectVarConst(ASTObject):
     """
@@ -509,6 +576,21 @@ class ASTObjectBase(ASTObject):
         self.names[var.name] = var
         self.varconst[var.name] = var
 
+    def add_struct(self, lex, struct):
+        """ var: ASTObjectStruct
+        """
+        # TODO: make function out of it, reject duplicates
+        self.names[struct.name] = struct
+        self.structs[struct.name] = struct
+
+    def add_function(self, lex, func):
+        """ func: ASTObjectFunction
+        """
+        # TODO: make function out of it, reject duplicates
+        self.names[func.name] = func
+        self.functions[func.name] = func
+
+
     def init_parse(self,pt,lex,parent):
         """used in __init__ to do the parsing"""
         
@@ -535,11 +617,15 @@ class ASTObjectBase(ASTObject):
                 self.add_varconst(lex,var)
                 
             elif ptparse_isToken(l[0],[("name","function")]):
-                # function type name {bracket-body}
-                pass
+                # function type name (bracket-body) {bracket-body}
+                func = ASTObjectFunction((False,([],[l])) ,lex,self)
+                self.add_function(lex,func)
+            
             elif ptparse_isToken(l[0],[("name","struct")]):
                 # struct name {bracket-body}
-                pass
+                struct = ASTObjectStruct((False,([],[l])) ,lex,self)
+                self.add_struct(lex,struct)
+
             elif ptparse_isdelimiterlist(l[0],[("operator","=")]):
                 assert(len(l)==1)
                 # var/cont type name = expression
@@ -557,8 +643,12 @@ class ASTObjectBase(ASTObject):
         for name,var in self.varconst.items():
             var.print_ast(depth = depth+step)
         print(" "*depth + f"structs:")
+        for name,struct in self.structs.items():
+            struct.print_ast(depth = depth+step)
         print(" "*depth + f"functions:")
-
+        for name,func in self.functions.items():
+            func.print_ast(depth = depth+step)
+ 
 class PTParser():
     """Take parse tree pt, produce ast of AST objects
     Via recursive decent.
