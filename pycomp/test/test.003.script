@@ -1,0 +1,12 @@
+const int xxx = 123;
+var int asdf = 123;
+var int yyy;
+function int xyz(int x) {
+   return x;
+};
+struct ABC {
+   var int x;
+   var int y;
+};
+
+

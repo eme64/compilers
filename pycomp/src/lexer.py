@@ -161,7 +161,7 @@ class Lexer:
 
 
 class BasicLexer(Lexer):
-    """Lexer that is initialized with the rules to parse
+    """Lexer that is initialized with the rules to lex
     - names/identifiers
     - strings ""
     - numers (decimal with dot)
