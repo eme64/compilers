@@ -273,6 +273,26 @@ def ptparse_strip(pt):
             return listoflists[0][0]
     return pt
 
+def ptparse_unpack_brackets(pt,bracket):
+    """unpack a layer of brackets
+    expect: (False, ([bracket,bracket],[[lst]]))
+    if match: return (False,([],[[lst]]))
+    else None
+    """
+    isToken,payload = pt
+    if isToken:
+        return None
+    
+    tokens,listoflists = payload
+    if len(tokens) !=2 or len(listoflists)!=1:
+        return None
+    
+    if tokens[0][0] != "bracket" or tokens[0][1] != bracket:
+        return None
+
+    # success
+    return (False, ([], listoflists))
+
 def ptparse_delimiter_list(pt,delimiters):
     """check if is a delimiter list
     if yes: return (tokens, listoflists)
@@ -336,7 +356,6 @@ def ptparse_isToken(pt, token_list=None):
     if token_list is not None: also check if matches
     a (name, val) pair. If val is None -> match
     """
-    print(pt)
     isToken,payload = pt
     if not isToken:
         return False
@@ -416,7 +435,6 @@ class ASTObjectFunction(ASTObject):
     def __init__(self,pt,lex,parent):
         # function type name (bracket-body) {bracket-body}
         l = ptparse_getlist(pt, lex, 5) # get the 5 elements
-        print(l)
         if l is None:
             print("PTParseError: syntax error: expected 'function type name (args) {body}'")
             ptparse_markfirsttokeninlist([pt],lex)
@@ -440,13 +458,53 @@ class ASTObjectFunction(ASTObject):
             #lex.mark_token(self.name_token)
         
         # check args:
-        # TODO l[3]
+        # l[3]
+        # expect (comma list):
+        unpack = ptparse_unpack_brackets(l[3],"(")
+        if unpack is None:
+            print("PTParseError: syntax error: expected function argument brackets.")
+            ptparse_markfirsttokeninlist([l[3]],lex)
+            quit()
+        
+        unpack = ptparse_strip(unpack)
+        tokens,listoflists = ptparse_delimiter_list(unpack,[("comma",",")])
+        self.varconst = {}
+        self.arguments = []
+
+        # check that none of the lists is empty
+        if len(tokens)>0:
+            for i,l in enumerate(listoflists):
+                if len(l)==0:
+                    if i == 0:
+                        print("PTParseError: syntax error: expected function argument before this comma.")
+                        lex.mark_token(tokens[0])
+                        quit()
+                    else:
+                        print("PTParseError: syntax error: expected function argument after this comma.")
+                        lex.mark_token(tokens[i-1])
+                        quit()
+
+        # parse the arguments
+        for l in listoflists:
+            if len(l)>0:
+                arg = ASTObjectVarConst((False,([],[l])), lex, self)
+                self.add_argument(lex,arg)
+                        
         # check body:
         # TODO l[4]
- 
+    
+    def add_argument(self,lex,arg):
+        """arg: ASTObjectVarConst
+        """
+        self.varconst[arg.name] = arg
+        self.arguments.append(arg)
+
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[Function] {self.name}")
-
+        print(" "*depth + f"arguments:")
+        for arg in self.arguments:
+            arg.print_ast(depth = depth+step)
+ 
 class ASTObjectStruct(ASTObject):
     """
     Struct ast object
@@ -455,7 +513,6 @@ class ASTObjectStruct(ASTObject):
     def __init__(self,pt,lex,parent):
         # struct name {bracket-body}
         l = ptparse_getlist(pt, lex, 3) # get the 3 elements
-        print(l)
         if l is None:
             print("PTParseError: syntax error: expected 'struct name {body}'")
             ptparse_markfirsttokeninlist([pt],lex)
@@ -517,7 +574,6 @@ class ASTObjectVarConst(ASTObject):
 
         # parse var / const definition
         l = ptparse_getlist(lhs, lex, 3)
-        print(l)
         if l is None:
             print("PTParseError: syntax error: expected 'const/var type name'")
             ptparse_markfirsttokeninlist([lhs],lex)
@@ -595,14 +651,10 @@ class ASTObjectBase(ASTObject):
         """used in __init__ to do the parsing"""
         
         # expect: semicolon list (or else take as single item)
-        print(pt)
         pt = ptparse_strip(pt)
-        print(pt)
         tokens, listoflists = ptparse_delimiter_list(pt,[("semicolon",";")])
 
         # per list expect: var, const, function, struct (or empty)
-        print(tokens)
-        print(listoflists)
         for l in listoflists:
             if len(l)==0:
                 continue

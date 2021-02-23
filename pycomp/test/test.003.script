@@ -1,7 +1,7 @@
 const int xxx = 123;
 var int asdf = 123;
 var int yyy;
-function int xyz(int x) {
+function int xyz (const int x, const int y) {
    return x;
 };
 struct ABC {
