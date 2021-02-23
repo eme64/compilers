@@ -420,6 +420,84 @@ def ptparse_getlist(pt,lex,k):
         else:
             return None
 
+def ptparse_expression(pt,lex):
+    """General parsing function to detect expressions
+    """
+    # types:
+    # - name, number, string
+    # - (): unpack - recurse
+    # - assign
+    # - operators
+    # - funcptr (args): function call (take first, apply rest)
+    # - cast (type,expr): fake function
+    
+    isToken,payload = pt
+
+    if isToken:
+        tname,tval,_,_ = payload
+
+        if tname == "name":
+            # TODO
+            assert(False and "name")
+        elif tname == "string":
+            # TODO
+            assert(False and "string")
+        elif tname == "number":
+            # TODO
+            assert(False and "number")
+        else:
+            print("PTParseError: unexpected token (expected: name, string or number)")
+            lex.mark_token(payload)
+            quit()
+            
+    else:
+        tokens, listoflists = payload
+        if len(tokens) == 0:
+            assert(len(listoflists)==1)
+            ll = listoflists[0]
+            if len(ll) == 0:
+                # TODO
+                assert(False and "nothing")
+            elif len(ll) == 1:
+                # must unpack
+                ptsub = ll[0]
+                return ptparse_expression(ptsub,lex)
+            else:
+                # list of elements: function calls
+                # TODO
+                assert(False and "function calls")
+        else:
+            # inspect first token:
+            tname,tval,_,_ = tokens[0]
+            if tname == "operator":
+                return ptparse_expression_operator(pt, lex)
+            elif tname == "bracket":
+                # TODO
+                assert(False and "bracket")
+            else:
+                print(tokens)
+                assert(False and "unhandled token")
+
+def ptparse_expression_operator(pt,lex):
+    """Parse operator expression."""
+    isToken, payload = pt
+    assert(not isToken)
+    tokens,listoflists = payload
+    assert(len(tokens)>0)
+    assert(tokens[0][0] == "operator")
+
+    # inspect first token to see what operator we have here
+    tname,tval,_,_ = tokens[0]
+
+    if tval in ["=","+=","-=","/=","*="]:
+        # TODO
+        assert(False and "assignment operator")
+    elif tval in ["+","-"]:
+        # TODO
+        assert(False and "+ - operator")
+    else:
+        print(tokens)
+        assert(False and "token not handled")
 
 
 # ##########################
@@ -473,8 +551,8 @@ class ASTObjectFunction(ASTObject):
 
         # check that none of the lists is empty
         if len(tokens)>0:
-            for i,l in enumerate(listoflists):
-                if len(l)==0:
+            for i,ll in enumerate(listoflists):
+                if len(ll)==0:
                     if i == 0:
                         print("PTParseError: syntax error: expected function argument before this comma.")
                         lex.mark_token(tokens[0])
@@ -485,13 +563,32 @@ class ASTObjectFunction(ASTObject):
                         quit()
 
         # parse the arguments
-        for l in listoflists:
-            if len(l)>0:
-                arg = ASTObjectVarConst((False,([],[l])), lex, self)
+        for ll in listoflists:
+            if len(ll)>0:
+                arg = ASTObjectVarConst((False,([],[ll])), lex, self)
                 self.add_argument(lex,arg)
                         
         # check body:
-        # TODO l[4]
+        # l[4]
+        # expect (comma list):
+        unpack = ptparse_unpack_brackets(l[4],"{")
+        if unpack is None:
+            print("PTParseError: syntax error: expected function body brackets.")
+            ptparse_markfirsttokeninlist([l[4]],lex)
+            quit()
+        
+        unpack = ptparse_strip(unpack)
+        tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
+        print(tokens)
+        print(listoflists)
+
+        # parse list of body instructions.
+        # They are a sequence of expressions.
+        # For this we apply a general expression detector.
+        for ll in listoflists:
+            if len(ll) > 0:
+                exp = ptparse_expression((False,([],[ll])), lex)
+                exp.print_ast()
     
     def add_argument(self,lex,arg):
         """arg: ASTObjectVarConst
