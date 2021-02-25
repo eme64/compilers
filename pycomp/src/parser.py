@@ -1,5 +1,29 @@
 #!/usr/bin/env python3
 
+# TODO:
+# some TODO's
+# function calls
+# function type
+# some operators
+# add Null and NullType
+#
+# could also be nice:
+# add syntactic sugar: x[y] -> *(x+y)
+# add stack array?
+
+# Figure out types of everything:
+# 1) list of all structs
+# 2) type of struct members: check for cycles!
+# 3) type of functions
+# 4) type of globals
+# 5) check expressions of globals (maybe very shallow???)
+# 6) move though function body:
+#       check name availability
+#       check type compatibility
+#       check if const violated
+
+# then can start thinking about asm-generation
+
 import sys
 from collections import deque
 import lexer
@@ -350,6 +374,15 @@ def ptparse_isdelimiterlist(pt,delimiters):
             return True
 
 
+def ptparse_isNothing(pt):
+    """Check if pt is (False, ([],[[]]))"""
+    isToken,payload = pt
+    if isToken:
+        return False
+    tokens,listoflists = payload
+    if len(tokens) != 0 or len(listoflists) != 1 or len(listoflists[0])!=0:
+        return False
+    return True
 
 def ptparse_isToken(pt, token_list=None):
     """check if is a token
@@ -435,12 +468,10 @@ def ptparse_expression(pt,lex, parent):
 
     if isToken:
         tname,tval,_,_ = payload
-
         if tname == "name":
             return ASTObjectExpressionName(pt,lex,parent)
-        elif tname == "string":
-            # TODO
-            assert(False and "string")
+        elif tname == "str":
+            return ASTObjectExpressionString(pt,lex,parent)
         elif tname == "num":
             return ASTObjectExpressionNumber(pt,lex,parent)
         else:
@@ -454,7 +485,7 @@ def ptparse_expression(pt,lex, parent):
             assert(len(listoflists)==1)
             ll = listoflists[0]
             if len(ll) == 0:
-                # TODO
+                # TODO: some sort of panick mode?
                 assert(False and "nothing")
             elif len(ll) == 1:
                 # must unpack
@@ -477,8 +508,19 @@ def ptparse_expression(pt,lex, parent):
             if tname == "operator":
                 return ptparse_expression_operator(pt, lex, parent)
             elif tname == "bracket":
-                # TODO
-                assert(False and "bracket")
+                if tval == "(":
+                    # unpack brackets
+                    unpack = ptparse_unpack_brackets(pt,"(")
+                    strip = ptparse_strip(unpack)
+                    if ptparse_isNothing(strip):
+                        print("PTParseError: expected expression inside brackets.")
+                        lex.mark_token(tokens[0])
+                        quit()
+                    return ptparse_expression(strip,lex,parent)
+                else:
+                    print("PTParseError: unexpected bracket in expression.")
+                    lex.mark_token(tokens[0])
+                    quit()
             else:
                 print(tokens)
                 assert(False and "unhandled token")
@@ -501,7 +543,7 @@ def ptparse_expression_operator(pt,lex,parent):
         
         assert(len(listoflists)==2)
         return ASTObjectExpressionAssignment(pt, lex, parent)
-    elif tval in ["+","-"]:
+    elif tval in ASTObjectExpressionBinOp_rtl_operators:
         if len(tokens) > 1: # if multiple assignments: break ltr
             pt_rtl = ptparse_delimiterlist_rtl(pt,lex)
             return ptparse_expression_operator(pt_rtl,lex, parent)
@@ -568,8 +610,10 @@ def ptparse_type(pt,lex, parent):
             if len(ll) == 1:
                 strip = ll[0]
                 return ptparse_type(strip, lex, parent)
-            print(pt)
-            assert(False and "no tokens")
+            else:
+                print("PTParseError: syntax error: around type description.")
+                ptparse_markfirsttokeninlist(ll,lex)
+                quit()
         else:
             tname,tval,_,_ = tokens[0]
             if tname == "bracket" and tval == "(":
@@ -657,6 +701,9 @@ ASTObjectTypeNumber_types = {
         "float":4,
         "double":8,
         "u64":8,
+        "u32":4,
+        "u16":2,
+        "u8":1,
         }# numbers are size in bytes
 
 class ASTObjectTypeNumber(ASTObjectType):
@@ -715,8 +762,8 @@ class ASTObjectFunction(ASTObject):
             print("PTParseError: syntax error: expected 'function'")
             ptparse_markfirsttokeninlist([l[0]],lex)
 
-        # check type:
-        # TODO l[1]
+        # check return type:
+        self.return_type = ptparse_type(l[1], lex, self)
 
         # check name:
         if ptparse_isToken(l[2],[("name",None)]):
@@ -787,6 +834,8 @@ class ASTObjectFunction(ASTObject):
 
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[Function] {self.name}")
+        print(" "*depth + f"return type:")
+        self.return_type.print_ast(depth = depth+step)
         print(" "*depth + f"arguments:")
         for arg in self.arguments:
             arg.print_ast(depth = depth+step)
@@ -898,6 +947,9 @@ class ASTObjectExpressionAssignment(ASTObjectExpression):
         print(" "*depth + f"rhs:")
         self.rhs.print_ast(depth = depth+step)
 
+ASTObjectExpressionBinOp_rtl_operators = [
+        "+","-","*","/","%",
+        ]
 
 class ASTObjectExpressionBinOp(ASTObjectExpression):
     """Binary operator of any kind
@@ -911,7 +963,7 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
         assert(tokens[0][0] == "operator")
         assert(len(listoflists)==2)
         tname,tval,_,_ = tokens[0]
-        assert( tval in ["+","-"] )
+        assert( tval in ASTObjectExpressionBinOp_rtl_operators )
         
         lhs = listoflists[0]
         rhs = listoflists[1]
@@ -1016,7 +1068,7 @@ class ASTObjectExpressionName(ASTObjectExpression):
         print(" "*depth + f"[name] {self.name}")
 
 class ASTObjectExpressionNumber(ASTObjectExpression):
-    """const/variable name"""
+    """literal number expression"""
     def __init__(self,pt,lex,parent):
         isToken, payload = pt
         assert(isToken)
@@ -1035,6 +1087,28 @@ class ASTObjectExpressionNumber(ASTObjectExpression):
  
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[number] {self.number}")
+
+class ASTObjectExpressionString(ASTObjectExpression):
+    """literal string expression"""
+    def __init__(self,pt,lex,parent):
+        isToken, payload = pt
+        assert(isToken)
+        tname,tval,_,_ = payload
+        assert(tname == "str")
+        self.string = tval
+        self.token_ = payload
+
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return False
+
+    def token(self):
+        return self.token_
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[string] '{self.string}'")
+
 
 class ASTObjectExpressionReturn(ASTObjectExpression):
     """return statement"""
@@ -1123,7 +1197,7 @@ class ASTObjectVarConst(ASTObject):
             quit()
 
         # check type:
-        # TODO l[1]
+        self.type = ptparse_type(l[1], lex,self)
 
         # check name:
         if ptparse_isToken(l[2],[("name",None)]):
@@ -1135,6 +1209,7 @@ class ASTObjectVarConst(ASTObject):
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[{'var' if self.isMutable else 'const'}] {self.name}")
         print(" "*depth + f"type:")
+        self.type.print_ast(depth = depth+step)
         if self.expression is not None:
             print(" "*depth + f"expression:")
             self.expression.print_ast(depth = depth+step)
