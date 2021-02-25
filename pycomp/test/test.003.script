@@ -2,7 +2,8 @@ const int xxx = 123;
 var int asdf = 123;
 var int yyy;
 function int xyz (const int x, const int y) {
-    var int z = x + y;
+    var int a = 2;
+    var int z = x = x + y;
     return z;
 };
 struct ABC {

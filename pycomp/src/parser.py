@@ -420,7 +420,7 @@ def ptparse_getlist(pt,lex,k):
         else:
             return None
 
-def ptparse_expression(pt,lex):
+def ptparse_expression(pt,lex, parent):
     """General parsing function to detect expressions
     """
     # types:
@@ -437,14 +437,12 @@ def ptparse_expression(pt,lex):
         tname,tval,_,_ = payload
 
         if tname == "name":
-            # TODO
-            assert(False and "name")
+            return ASTObjectExpressionName(pt,lex,parent)
         elif tname == "string":
             # TODO
             assert(False and "string")
-        elif tname == "number":
-            # TODO
-            assert(False and "number")
+        elif tname == "num":
+            return ASTObjectExpressionNumber(pt,lex,parent)
         else:
             print("PTParseError: unexpected token (expected: name, string or number)")
             lex.mark_token(payload)
@@ -461,16 +459,23 @@ def ptparse_expression(pt,lex):
             elif len(ll) == 1:
                 # must unpack
                 ptsub = ll[0]
-                return ptparse_expression(ptsub,lex)
+                return ptparse_expression(ptsub,lex, parent)
+            elif ptparse_isToken(ll[0], [("name","var"),("name","const")]):
+                # var/const definition
+                return ASTObjectExpressionDeclaration(pt, lex, parent)
+            elif ptparse_isToken(ll[0], [("name","return")]):
+                # TODO
+                assert(False and "return")
             else:
                 # list of elements: function calls
                 # TODO
+                print(ll)
                 assert(False and "function calls")
         else:
             # inspect first token:
             tname,tval,_,_ = tokens[0]
             if tname == "operator":
-                return ptparse_expression_operator(pt, lex)
+                return ptparse_expression_operator(pt, lex, parent)
             elif tname == "bracket":
                 # TODO
                 assert(False and "bracket")
@@ -478,7 +483,7 @@ def ptparse_expression(pt,lex):
                 print(tokens)
                 assert(False and "unhandled token")
 
-def ptparse_expression_operator(pt,lex):
+def ptparse_expression_operator(pt,lex,parent):
     """Parse operator expression."""
     isToken, payload = pt
     assert(not isToken)
@@ -490,14 +495,43 @@ def ptparse_expression_operator(pt,lex):
     tname,tval,_,_ = tokens[0]
 
     if tval in ["=","+=","-=","/=","*="]:
-        # TODO
-        assert(False and "assignment operator")
+        if len(tokens) > 1: # if multiple assignments: break ltr
+            pt_ltr = ptparse_delimiterlist_ltr(pt,lex)
+            return ptparse_expression_operator(pt_ltr,lex, parent)
+        
+        assert(len(listoflists)==2)
+        return ASTObjectExpressionAssignment(pt, lex, parent)
     elif tval in ["+","-"]:
-        # TODO
-        assert(False and "+ - operator")
+        if len(tokens) > 1: # if multiple assignments: break ltr
+            pt_rtl = ptparse_delimiterlist_rtl(pt,lex)
+            return ptparse_expression_operator(pt_rtl,lex, parent)
+        
+        assert(len(listoflists)==2)
+        return ASTObjectExpressionBinOp(pt, lex, parent)
     else:
         print(tokens)
         assert(False and "token not handled")
+
+def ptparse_delimiterlist_ltr(pt,lex):
+    """Take any delimiter list, left to right
+    x + v
+      x + v
+        x + ..."""
+    isToken, payload = pt
+    assert(not isToken)
+    tokens,listoflists = payload
+    assert(len(tokens) + 1 == len(listoflists))
+
+    # extract rightmost elements
+    rhs = (False,([tokens[-1]], listoflists[-2:]))
+    
+    # reduce over rest of elements
+    i = len(tokens)-2
+    while i>=0:
+        rhs = (False, ([tokens[i]], [listoflists[i], [rhs]]))
+        i-=1
+
+    return rhs
 
 
 # ##########################
@@ -579,15 +613,14 @@ class ASTObjectFunction(ASTObject):
         
         unpack = ptparse_strip(unpack)
         tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
-        print(tokens)
-        print(listoflists)
 
         # parse list of body instructions.
         # They are a sequence of expressions.
         # For this we apply a general expression detector.
         for ll in listoflists:
             if len(ll) > 0:
-                exp = ptparse_expression((False,([],[ll])), lex)
+                exp = ptparse_expression((False,([],[ll])), lex, self)
+                print("total expression")
                 exp.print_ast()
     
     def add_argument(self,lex,arg):
@@ -638,13 +671,210 @@ class ASTObjectStruct(ASTObject):
 class ASTObjectExpression(ASTObject):
     """
     Expression ast object
+    this is the 
     """
 
     def __init__(self,pt,lex,parent):
-        pass # TODO
+        assert(False)
+
+    # to implement in derived classes:
+    def isReadable(self):
+        return False
+    def isWritable(self):
+        return False
+
+    def token(self):
+        # return token that points to this expression
+        # used for error messages
+        assert(False)
+
+class ASTObjectExpressionAssignment(ASTObjectExpression):
+    """Assignment of some kind"""
+    def __init__(self,pt,lex,parent):
+        isToken, payload = pt
+        assert(not isToken)
+        tokens,listoflists = payload
+        assert(len(tokens)>0)
+        assert(tokens[0][0] == "operator")
+        assert(len(listoflists)==2)
+        tname,tval,_,_ = tokens[0]
+        assert( tval in ["=","+=","-=","/=","*="] )
+        
+        lhs = listoflists[0]
+        rhs = listoflists[1]
+
+        self.operator = tval
+        self.token_ = tokens[0]
+        self.lhs = ptparse_expression((False,([],[lhs])), lex,self)
+        self.rhs = ptparse_expression((False,([],[rhs])), lex,self)
+        
+        if not self.lhs.isWritable():
+            print("PTParseError: cannot write to left-hand-side of this assignment.")
+            lex.mark_token(tokens[0])
+            quit()
+
+        if tval != "=":
+            if not self.lhs.isReadable():
+                print("PTParseError: cannot read from left-hand-side of this read-modify-write operator.")
+                lex.mark_token(tokens[0])
+                quit()
+
+        if not self.rhs.isReadable():
+            print("PTParseError: cannot read/get value from right-hand-side of this assignment.")
+            lex.mark_token(tokens[0])
+            quit()
+
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return True
+
+    def token(self):
+        return self.token_
  
     def print_ast(self,depth=0,step=3):
-        print(" "*depth + f"[Expression]")
+        print(" "*depth + f"[Assignment] {self.operator}")
+        print(" "*depth + f"lhs:")
+        self.lhs.print_ast(depth = depth+step)
+        print(" "*depth + f"rhs:")
+        self.rhs.print_ast(depth = depth+step)
+
+
+class ASTObjectExpressionBinOp(ASTObjectExpression):
+    """Binary operator of any kind
+    reads both sides and returns some result
+    """
+    def __init__(self,pt,lex,parent):
+        isToken, payload = pt
+        assert(not isToken)
+        tokens,listoflists = payload
+        assert(len(tokens)==1)
+        assert(tokens[0][0] == "operator")
+        assert(len(listoflists)==2)
+        tname,tval,_,_ = tokens[0]
+        assert( tval in ["+","-"] )
+        
+        lhs = listoflists[0]
+        rhs = listoflists[1]
+
+        self.operator = tval
+        self.token_ = tokens[0]
+        self.lhs = ptparse_expression((False,([],[lhs])), lex,self)
+        self.rhs = ptparse_expression((False,([],[rhs])), lex,self)
+        
+        if not self.lhs.isReadable():
+            print("PTParseError: cannot read from left-hand-side of this binary operator.")
+            lex.mark_token(tokens[0])
+            quit()
+
+        if not self.rhs.isReadable():
+            print("PTParseError: cannot read from right-hand-side of this binary operator.")
+            lex.mark_token(tokens[0])
+            quit()
+
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return True
+
+    def token(self):
+        return self.token_
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[BinOp] {self.operator}")
+        print(" "*depth + f"lhs:")
+        self.lhs.print_ast(depth = depth+step)
+        print(" "*depth + f"rhs:")
+        self.rhs.print_ast(depth = depth+step)
+
+class ASTObjectExpressionDeclaration(ASTObjectExpression):
+    """var/const declaration
+    const type name
+    var type name
+    """
+    def __init__(self,pt,lex,parent):
+        # parse var / const definition
+        l = ptparse_getlist(pt, lex, 3)
+        if l is None:
+            print("PTParseError: syntax error: expected 'const/var type name'")
+            ptparse_markfirsttokeninlist([pt],lex)
+            quit()
+
+        # check if var / const:
+        if ptparse_isToken(l[0],[("name","var")]):
+            self.isMutable = True
+        elif ptparse_isToken(l[0],[("name","const")]):
+            self.isMutable = False
+        else:
+            print("PTParseError: syntax error: expected 'const/var'")
+            ptparse_markfirsttokeninlist([l[0]],lex)
+            quit()
+
+        # check type:
+        # TODO: l[1] + print
+
+        # check name:
+        if ptparse_isToken(l[2],[("name",None)]):
+            self.token_ = l[2][1]
+            self.name = l[2][1][1]
+        else:
+            print("PTParseError: syntax error: expected 'const/var'")
+            ptparse_markfirsttokeninlist([l[2]],lex)
+            quit()
+
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return True
+
+    def token(self):
+        return self.token_
+
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[{'var' if self.isMutable else 'const'}] {self.name}")
+        print(" "*depth + f"type:")
+
+class ASTObjectExpressionName(ASTObjectExpression):
+    """const/variable name"""
+    def __init__(self,pt,lex,parent):
+        isToken, payload = pt
+        assert(isToken)
+        tname,tval,_,_ = payload
+        assert(tname == "name")
+        self.name = tval
+        self.token_ = payload
+
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return True
+
+    def token(self):
+        return self.token_
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[name] {self.name}")
+
+class ASTObjectExpressionNumber(ASTObjectExpression):
+    """const/variable name"""
+    def __init__(self,pt,lex,parent):
+        isToken, payload = pt
+        assert(isToken)
+        tname,tval,_,_ = payload
+        assert(tname == "num")
+        self.number = tval
+        self.token_ = payload
+
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return False
+
+    def token(self):
+        return self.token_
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[number] {self.number}")
 
 class ASTObjectVarConst(ASTObject):
     """
@@ -653,6 +883,9 @@ class ASTObjectVarConst(ASTObject):
 
     def __init__(self,pt,lex,parent):
         self.isMutable = False # var/const - True/False
+        # True iff: defined as var or only with type or only assigned to
+        # if the variable was previously defined as a constant, this may lead to a conflict!
+        # False iff: defined as const.
         self.name = None # string
         self.name_token = None
         self.type = None # sub ast
@@ -665,7 +898,8 @@ class ASTObjectVarConst(ASTObject):
             lhs = (False,([],[listoflists[0]]))
             rhs = (False,(tokens[1:],listoflists[1:]))
 
-            self.expression = ASTObjectExpression(rhs,lex,self)
+            #self.expression = ASTObjectExpression(rhs,lex,self)
+            self.expression = ptparse_expression(rhs,lex,self)
         else:
             lhs = pt
 
@@ -684,6 +918,7 @@ class ASTObjectVarConst(ASTObject):
         else:
             print("PTParseError: syntax error: expected 'const/var'")
             ptparse_markfirsttokeninlist([l[0]],lex)
+            quit()
 
         # check type:
         # TODO l[1]
