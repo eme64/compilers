@@ -1,14 +1,17 @@
-const int xxx = 123;
-var int asdf = 123;
-var int yyy;
-function int xyz (const int x, const int y) {
-    var int a = 2;
-    var int z = x = x + y;
+const i32 xxx = 123;
+var i32 asdf = 123;
+var i32 yyy;
+var (*i32) arr;
+function i32 xyz (const i32 x, const i32 y) {
+    var i32 a = 2;
+    var (*  * ***ABC) b;
+    var (*  * ***u64) c;
+    var i32 z = x = x + y;
     return z;
 };
 struct ABC {
-   var int x;
-   var int y;
+   var i32 x;
+   var i32 y;
 };
 
 

@@ -534,10 +534,166 @@ def ptparse_delimiterlist_ltr(pt,lex):
     return rhs
 
 
+def ptparse_type(pt,lex, parent):
+    """
+    forms:
+    - name: value type
+    - *name: pointer type
+    - out_t(in_t,in_t): function type
+
+    need to check things like:
+    - assignment
+    - casting
+    - operators
+    """
+    
+    isToken,payload = pt
+
+    if isToken:
+        tname,tval,_,_ = payload
+        if tname == "name":
+            if tval in ASTObjectTypeNumber_types:
+                return ASTObjectTypeNumber(pt,lex,parent)
+            else:
+                return ASTObjectTypeStruct(pt,lex,parent)
+        else:
+            print("PTParseError: syntax error: expected type name.")
+            lex.mark_token(payload)
+            quit()
+    else:
+        tokens,listoflists = payload
+        if len(tokens) == 0:
+            assert(len(listoflists)==1)
+            ll = listoflists[0]
+            if len(ll) == 1:
+                strip = ll[0]
+                return ptparse_type(strip, lex, parent)
+            print(pt)
+            assert(False and "no tokens")
+        else:
+            tname,tval,_,_ = tokens[0]
+            if tname == "bracket" and tval == "(":
+                assert(len(tokens)==2)
+                assert(len(listoflists)==1)
+                # unpack bracket and strip
+                unpack = ptparse_unpack_brackets(pt,"(")
+                strip = ptparse_strip(unpack)
+                return ptparse_type(strip,lex,parent)
+            elif tname == "operator":
+                if tval == "*":
+                    if len(tokens) > 1:
+                        pt_ltr = ptparse_delimiterlist_ltr(pt,lex)
+                        return ptparse_type(pt_ltr,lex,parent)
+                    return ASTObjectTypePointer(pt,lex,parent)
+                else:
+                    print("PTParseError: unexpected operator token in type.")
+                    lex.mark_token(payload)
+                    quit()
+
+            else:
+                print("PTParseError: unexpected token in type.")
+                lex.mark_token(payload)
+                quit()
+
+    assert(False and "panick")
+
+
 # ##########################
 # # ASTObjects for parsing #
 # ##########################
 
+class ASTObjectType(ASTObject):
+    """
+    generic Type ast object
+    """
+    def __init__(self,pt,lex,parent):
+        assert(False)
+
+    # attributes to be defined by all:
+    def isPointer(self):
+        return False
+    def isNumber(self):
+        return False
+    def isStruct(self):
+        return False
+    def isFunction(self):
+        return False
+
+class ASTObjectTypePointer(ASTObjectType):
+    """
+    pointer type ast object
+    """
+    def __init__(self,pt,lex,parent):
+        isToken,payload = pt
+        assert(not isToken)
+        tokens,listoflists = payload
+        assert(len(tokens)==1)
+        # expect pointer type:
+        # * sth
+        if len(tokens)>1:
+            print("PTParseError: too many operator tokens for pointer type.")
+            lex.mark_token(tokens[0])
+            quit()
+        assert(len(listoflists)==2)
+        lhs = listoflists[0]
+        rhs = listoflists[1]
+        if len(lhs)>0:
+            print("PTParseError: syntax error: nothing allowed left of pointer type '*'.")
+            lex.mark_token(tokens[0])
+            quit()
+
+        # now go recursive
+        self.type = ptparse_type((False, ([],[rhs])), lex,self)
+    
+    def isPointer(self):
+        return True
+
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[pointer-type]")
+        self.type.print_ast(depth = depth+step)
+ 
+ASTObjectTypeNumber_types = {
+        "i32":4,
+        "float":4,
+        "double":8,
+        "u64":8,
+        }# numbers are size in bytes
+
+class ASTObjectTypeNumber(ASTObjectType):
+    """
+    number type ast object, see list in dictionary above:
+    """
+    def __init__(self,pt,lex,parent):
+        isToken,payload = pt
+        assert(isToken)
+        tname,tval,_,_ = payload
+        assert(tname == "name")
+        assert(tval in ASTObjectTypeNumber_types)
+
+        self.name = tval
+
+    def isNumber(self):
+        return True
+
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[number-type] {self.name}")
+ 
+class ASTObjectTypeStruct(ASTObjectType):
+    """
+    struct type ast object
+    """
+    def __init__(self,pt,lex,parent):
+        isToken,payload = pt
+        assert(isToken)
+        tname,tval,_,_ = payload
+        assert(tname == "name")
+        self.name = tval
+
+    def isStruct(self):
+        return True
+
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[struct-type] {self.name}")
 
 class ASTObjectFunction(ASTObject):
     """
@@ -814,7 +970,7 @@ class ASTObjectExpressionDeclaration(ASTObjectExpression):
             quit()
 
         # check type:
-        # TODO: l[1] + print
+        self.type = ptparse_type(l[1], lex, self)
 
         # check name:
         if ptparse_isToken(l[2],[("name",None)]):
@@ -836,6 +992,7 @@ class ASTObjectExpressionDeclaration(ASTObjectExpression):
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[{'var' if self.isMutable else 'const'}] {self.name}")
         print(" "*depth + f"type:")
+        self.type.print_ast(depth = depth+step)
 
 class ASTObjectExpressionName(ASTObjectExpression):
     """const/variable name"""
