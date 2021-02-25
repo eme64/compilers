@@ -464,8 +464,8 @@ def ptparse_expression(pt,lex, parent):
                 # var/const definition
                 return ASTObjectExpressionDeclaration(pt, lex, parent)
             elif ptparse_isToken(ll[0], [("name","return")]):
-                # TODO
-                assert(False and "return")
+                # return statement
+                return ASTObjectExpressionReturn(pt,lex,parent)
             else:
                 # list of elements: function calls
                 # TODO
@@ -617,11 +617,11 @@ class ASTObjectFunction(ASTObject):
         # parse list of body instructions.
         # They are a sequence of expressions.
         # For this we apply a general expression detector.
+        self.body = []
         for ll in listoflists:
             if len(ll) > 0:
                 exp = ptparse_expression((False,([],[ll])), lex, self)
-                print("total expression")
-                exp.print_ast()
+                self.body.append(exp)
     
     def add_argument(self,lex,arg):
         """arg: ASTObjectVarConst
@@ -634,6 +634,9 @@ class ASTObjectFunction(ASTObject):
         print(" "*depth + f"arguments:")
         for arg in self.arguments:
             arg.print_ast(depth = depth+step)
+        print(" "*depth + f"body:")
+        for exp in self.body:
+            exp.print_ast(depth = depth+step)
  
 class ASTObjectStruct(ASTObject):
     """
@@ -875,6 +878,48 @@ class ASTObjectExpressionNumber(ASTObjectExpression):
  
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[number] {self.number}")
+
+class ASTObjectExpressionReturn(ASTObjectExpression):
+    """return statement"""
+    def __init__(self,pt,lex,parent):
+        isToken, payload = pt
+        assert(not isToken)
+        tokens,listoflists = payload
+        assert(len(tokens)==0)
+        assert(len(listoflists)==1)
+        l = listoflists[0]
+
+        if not ptparse_isToken(l[0], [("name","return")]):
+            print("PTParseError: expected return statement.")
+            ptparse_markfirsttokeninlist([l[0]],lex)
+            quit()
+
+        self.token_ = l[0][1]
+
+        if len(l) !=2:
+            print(f"PTParseError: syntax error in print statement. (expected 'return <expression>')")
+            ptparse_markfirsttokeninlist([l[0]],lex)
+            quit()
+
+        self.expression = ptparse_expression(l[1],lex,self)
+
+        if not self.expression.isReadable():
+            print("PTParseError: cannot read/evaluate return expression.")
+            ptparse_markfirsttokeninlist([l[1]],lex)
+            quit()
+
+    def isReadable(self):
+        return False
+    def isWritable(self):
+        return False
+
+    def token(self):
+        return self.token_
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[return]")
+        print(" "*depth + f"expression:")
+        self.expression.print_ast(depth = depth+step)
 
 class ASTObjectVarConst(ASTObject):
     """
