@@ -128,7 +128,7 @@ class Lexer:
                 self.pos += 1
                 if self.pos >= len(lines[self.line]):
                     # end of line, already passed "\n"
-                    if self.state != "init":
+                    if self.state != "init" and self.state != "com2":
                         print(f"LexError: end of line not 'init' but '{self.state}' state for line {self.line}")
                         print(lines[self.line])
                         quit()
@@ -213,6 +213,7 @@ class BasicLexer(Lexer):
                      "*", "/", "~",
                      "+", "++", "-", "--", "->", ".",
                      "=","+=", "-=","/=","*=",
+                     "//","/*",# For comments
                      ]
         
         operator_char = list(set([ord(c) for o in operators for c in o]))
@@ -259,6 +260,10 @@ class BasicLexer(Lexer):
             if res == "extensible":
                 return (True, "oper", start)
             elif res == "last":
+                if last == "//": # comment
+                    return (False,"com",pos)
+                if last == "/*": # comment
+                    return (False,"com2",pos)
                 self.push_token("operator", last)
                 return (False, "init", pos)
             else:
@@ -270,6 +275,10 @@ class BasicLexer(Lexer):
             value = line[start:pos]
             res = check_operator(value, -1) # -1 as as sentinel/dummy
             if res == "last":
+                if value == "//": # comment
+                    return (False,"com",pos)
+                if value == "/*": # comment
+                    return (False,"com2",pos)
                 self.push_token("operator", value)
                 return (False,"init", pos)
             else:
@@ -344,10 +353,34 @@ class BasicLexer(Lexer):
             return (True,"init", pos+1)
         
         # comment:
-        #   goes from hashtag # all the way to end of line
+        #   goes from double-slash // all the way to end of line
         def action_comment(line,linenum,state,start,pos):
             return (True, "com", pos)
         def action_comment_end(line,linenum,state,start,pos):
+            return (True, "init", pos)
+
+        # multiline comment:
+        #   goes from /* ... */
+        def action_comment2(line,linenum,state,start,pos):
+            return (True, "com2", pos)
+        def action_comment2_star(line,linenum,state,start,pos):
+            return (True, "com2_s", pos)
+        def action_comment2_end(line,linenum,state,start,pos):
+            return (True, "init", pos)
+        
+        # preprocessor:
+        global preprocessor_capture
+        preprocessor_capture = []
+        def action_preprocess(line,linenum,state,start,pos):
+            global preprocessor_capture
+            preprocessor_capture.append(line[pos])
+            return (True, "pre", pos)
+        def action_preprocess_end(line,linenum,state,start,pos):
+            global preprocessor_capture
+            s = "".join(preprocessor_capture)
+            print(s)
+            assert(False)
+            preprocessor_capture = []
             return (True, "init", pos)
 
         self.set_rules([
@@ -386,10 +419,20 @@ class BasicLexer(Lexer):
             ("str_esc_h1", cs.hex(),                                    action_string_escape_h2),
             ("str_esc_h2", cs.hex(),                                    action_string),
             
+            # preprocessor:
+            ("init", [ord("#")],                             action_preprocess),
+            ("pre",  cs.minus(cs.all(), [ord("\n")]),        action_preprocess),
+            ("pre",  [ord("\n")],                            action_preprocess_end),
             # comment:
-            ("init", [ord("#")],                             action_comment),
             ("com",  cs.minus(cs.all(), [ord("\n")]),        action_comment),
             ("com",  [ord("\n")],                            action_comment_end),
+            
+            # multiline comment
+            ("com2",  cs.minus(cs.all(), [ord("*")]),        action_comment2),
+            ("com2",  [ord("*")],                            action_comment2_star),
+            ("com2_s",[ord("*")],                            action_comment2_star),
+            ("com2_s",[ord("/")],                            action_comment2_end),
+            ("com2_s",cs.minus(cs.all(), [ord("/"),ord("*")]),        action_comment2),
             ])
 
 

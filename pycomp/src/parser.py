@@ -7,9 +7,11 @@
 # x->y->z(asdf)
 
 # TODO:
-# function type
 # some operators
 # add Null and NullType
+# void type
+# import (header) files
+# -> recursive error reporting!
 #
 # could also be nice:
 # add syntactic sugar: x[y] -> *(x+y)

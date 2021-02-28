@@ -1,9 +1,17 @@
+//import "test.003.a.script";
+
+/* hello world
+   and another line
+   and final line */ const i32 aaaa;
+
+/*** hello world ****/ const i32 bbbb;
+
 const i32 xxx = 123;
 var i32 asdf = 123;
 var i32 yyy;
 var (*i32) arr = Null;
-# could improve error reporting:
-#var *i32 xxxx;
+// could improve error reporting:
+//var *i32 xxxx;
 function (*i32) xyz (const i32 x, const i32 y) {
     var i32 a = 2;
     var (*  * ***ABC) b;
@@ -13,14 +21,14 @@ function (*i32) xyz (const i32 x, const i32 y) {
     var i32 z = x = x + y;
     var i32 zz = (x +( x +hello ));
     
-    #leads to error (expected)
-    #var *i32 z;
+    //leads to error (expected)
+    //var *i32 z;
     return z;
 };
 function i32 main(const i32 argc, const (**i8) argv) {
     xyz(1,2);
     asdf(1,2)(2,3)(3,4)(4,5+5+6);
-    #var (*i32) x = cast(*i32,y)
+    //var (*i32) x = cast(*i32,y)
     var (*(i32(i32,i32))) func = doSth;
     return 0;
 };
@@ -29,5 +37,4 @@ struct ABC {
    var i32 y;
    const i32 z;
 };
-
 
