@@ -21,6 +21,7 @@ function i32 main(const i32 argc, const (**i8) argv) {
     xyz(1,2);
     asdf(1,2)(2,3)(3,4)(4,5+5+6);
     #var (*i32) x = cast(*i32,y)
+    var (*(i32(i32,i32))) func = doSth;
     return 0;
 };
 struct ABC {

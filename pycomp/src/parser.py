@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# idea:
+# consider parsing bottom up
+# could make things easier like function call:
+# x.y.z(asdf)
+# x->y->z(asdf)
+
 # TODO:
 # function type
 # some operators
@@ -655,6 +661,9 @@ def ptparse_type(pt,lex, parent):
             if len(ll) == 1:
                 strip = ll[0]
                 return ptparse_type(strip, lex, parent)
+            elif len(ll)==2:
+                # function type
+                return ASTObjectTypeFunction(pt,lex,parent) 
             else:
                 print("PTParseError: syntax error: around type description.")
                 ptparse_markfirsttokeninlist(ll,lex)
@@ -785,6 +794,65 @@ class ASTObjectTypeStruct(ASTObjectType):
 
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[struct-type] {self.name}")
+ 
+class ASTObjectTypeFunction(ASTObjectType):
+    """
+    function type ast object
+    """
+    def __init__(self,pt,lex,parent):
+        isToken,payload = pt
+        assert(not isToken)
+        tokens,listoflists = payload
+        assert(len(tokens)==0)
+        assert(len(listoflists)==1)
+        ll = listoflists[0]
+        assert(len(ll)==2)
+
+        # return type:
+        self.return_type = ptparse_type(ll[0],lex,self)
+
+        # argument types:
+        unpack = ptparse_unpack_brackets(ll[1],"(")
+        if unpack is None:
+            print("PTParseError: syntax error: expected brackets for arguments of function type.")
+            ptparse_markfirsttokeninlist([ll[1]],lex)
+            quit()
+        
+        unpack = ptparse_strip(unpack)
+        tokens,listoflists = ptparse_delimiter_list(unpack,[("comma",",")])
+        self.argument_types = []
+
+        # check that none of the lists is empty
+        if len(tokens)>0:
+            for i,ll in enumerate(listoflists):
+                if len(ll)==0:
+                    if i == 0:
+                        print("PTParseError: syntax error: expected function argument type before this comma.")
+                        lex.mark_token(tokens[0])
+                        quit()
+                    else:
+                        print("PTParseError: syntax error: expected function argument type after this comma.")
+                        lex.mark_token(tokens[i-1])
+                        quit()
+
+        # parse the argument types
+        for ll in listoflists:
+            if len(ll)>0:
+                arg = ptparse_type((False,([],[ll])), lex, self)
+                self.argument_types.append(arg)
+ 
+
+    def isFunction(self):
+        return True
+
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[function-type]")
+        print(" "*depth + f"return type:")
+        self.return_type.print_ast(depth = depth+step)
+        print(" "*depth + f"arguments:")
+        for arg in self.argument_types:
+            arg.print_ast(depth = depth+step)
+ 
 
 class ASTObjectFunction(ASTObject):
     """
