@@ -1,7 +1,7 @@
 const i32 xxx = 123;
 var i32 asdf = 123;
 var i32 yyy;
-var (*i32) arr;
+var (*i32) arr = Null;
 # could improve error reporting:
 #var *i32 xxxx;
 function (*i32) xyz (const i32 x, const i32 y) {
@@ -16,6 +16,12 @@ function (*i32) xyz (const i32 x, const i32 y) {
     #check this later again
     #var *i32 z;
     return z;
+};
+function i32 main(const i32 argc, const (**i8) argv) {
+    xyz(1,2);
+    asdf(1,2)(2,3)(3,4)(4,5+5+6);
+    #var (*i32) x = cast(*i32,y)
+    return 0;
 };
 struct ABC {
    var i32 x;

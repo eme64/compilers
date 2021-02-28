@@ -330,7 +330,7 @@ def ptparse_delimiter_list(pt,delimiters):
     
     isToken,payload = pt
     if isToken:
-        return ([],[pt])
+        return ([],[[pt]])
     else:
         tokens,listoflists = payload
         if len(tokens) == 0:
@@ -499,9 +499,14 @@ def ptparse_expression(pt,lex, parent):
                 return ASTObjectExpressionReturn(pt,lex,parent)
             else:
                 # list of elements: function calls
-                # TODO
-                print(ll)
-                assert(False and "function calls")
+                if len(ll)>2:
+                    pt_rtl = ptparse_list_rtl(pt,lex)
+                    return ptparse_expression(pt_rtl,lex,parent)
+                assert(len(ll)==2)
+                
+                if ptparse_isToken(ll[0],[("name","cast")]):
+                    assert(False and "cast not implemented")
+                return ASTObjectExpressionFunctionCall(pt, lex, parent)
         else:
             # inspect first token:
             tname,tval,_,_ = tokens[0]
@@ -544,7 +549,7 @@ def ptparse_expression_operator(pt,lex,parent):
         assert(len(listoflists)==2)
         return ASTObjectExpressionAssignment(pt, lex, parent)
     elif tval in ASTObjectExpressionBinOp_rtl_operators:
-        if len(tokens) > 1: # if multiple assignments: break ltr
+        if len(tokens) > 1: # if multiple assignments: break rtl
             pt_rtl = ptparse_delimiterlist_rtl(pt,lex)
             return ptparse_expression_operator(pt_rtl,lex, parent)
         
@@ -575,6 +580,48 @@ def ptparse_delimiterlist_ltr(pt,lex):
 
     return rhs
 
+def ptparse_delimiterlist_rtl(pt,lex):
+    """Take any delimiter list, right to left
+          v + x
+        v + x
+    ... + x"""
+    isToken, payload = pt
+    assert(not isToken)
+    tokens,listoflists = payload
+    assert(len(tokens) + 1 == len(listoflists))
+
+    # extract leftmostmost elements
+    lhs = (False,([tokens[0]], listoflists[0:2]))
+    
+    # reduce over rest of elements
+    i = 1
+    while i<len(tokens):
+        lhs = (False, ([tokens[i]], [[lhs],listoflists[i+1]]))
+        i+=1
+    return lhs
+
+def ptparse_list_rtl(pt,lex):
+    """Take any list, right to left
+        v x
+       v x
+    ... x"""
+    isToken, payload = pt
+    assert(not isToken)
+    tokens,listoflists = payload
+    assert(len(tokens) ==0)
+    assert(len(listoflists)==1)
+    ll = listoflists[0]
+
+    # extract leftmostmost elements
+    lhs = (False,([], [[ll[0], ll[1]]]))
+    
+    # reduce over rest of elements
+    i = 2
+    while i<len(ll):
+        lhs = (False, ([], [[lhs,ll[i]]]))
+        i+=1
+
+    return lhs
 
 def ptparse_type(pt,lex, parent):
     """
@@ -640,7 +687,6 @@ def ptparse_type(pt,lex, parent):
                 quit()
 
     assert(False and "panick")
-
 
 # ##########################
 # # ASTObjects for parsing #
@@ -946,6 +992,74 @@ class ASTObjectExpressionAssignment(ASTObjectExpression):
         self.lhs.print_ast(depth = depth+step)
         print(" "*depth + f"rhs:")
         self.rhs.print_ast(depth = depth+step)
+
+class ASTObjectExpressionFunctionCall(ASTObjectExpression):
+    """Function Call"""
+    def __init__(self,pt,lex,parent):
+        isToken, payload = pt
+        assert(not isToken)
+        tokens,listoflists = payload
+        assert(len(tokens)==0)
+        assert(len(listoflists)==1)
+        ll = listoflists[0]
+        assert(len(ll)==2)
+        lhs = ll[0]
+        rhs = ll[1]
+        
+        self.token_ = ptparse_getfirsttoken(lhs)
+
+        self.func = ptparse_expression((False,([],[[lhs]])), lex,self)
+        if not self.func.isReadable():
+            print("PTParseError: cannot read/evaluate function name/pointer.")
+            lex.mark_token(tokens[0])
+            quit()
+        
+        # arguments
+        unpack = ptparse_unpack_brackets(rhs,"(")
+        unpack = ptparse_strip(unpack)
+        tokens,listoflists = ptparse_delimiter_list(unpack,[("comma",",")])
+        self.arguments = []
+        
+        # check that none of the arguments is empty
+        if len(tokens)>0:
+            for i,ll in enumerate(listoflists):
+                if len(ll)==0:
+                    if i == 0:
+                        print("PTParseError: syntax error: expected argument before this comma.")
+                        lex.mark_token(tokens[0])
+                        quit()
+                    else:
+                        print("PTParseError: syntax error: expected argument after this comma.")
+                        lex.mark_token(tokens[i-1])
+                        quit()
+
+        # parse the arguments
+        for ll in listoflists:
+            if len(ll)>0:
+                arg = ptparse_expression((False,([],[ll])), lex, self)
+                if not arg.isReadable():
+                    print("PTParseError: cannot read/evaluate function argument.")
+                    lex.mark_token(tokens[0])
+                    quit()
+                self.arguments.append(arg)
+ 
+       
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return True
+
+    def token(self):
+        return self.token_
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[Function Call]")
+        print(" "*depth + f"func:")
+        self.func.print_ast(depth = depth+step)
+        print(" "*depth + f"args:")
+        for i,arg in enumerate(self.arguments):
+            print(" "*depth + f"#{i}:")
+            arg.print_ast(depth = depth+step)
 
 ASTObjectExpressionBinOp_rtl_operators = [
         "+","-","*","/","%",
