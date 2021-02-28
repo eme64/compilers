@@ -1016,6 +1016,11 @@ class ASTObjectExpressionFunctionCall(ASTObjectExpression):
         
         # arguments
         unpack = ptparse_unpack_brackets(rhs,"(")
+        if unpack is None:
+            print("PTParseError: syntax error: expected function call argument brackets.")
+            ptparse_markfirsttokeninlist([rhs],lex)
+            quit()
+ 
         unpack = ptparse_strip(unpack)
         tokens,listoflists = ptparse_delimiter_list(unpack,[("comma",",")])
         self.arguments = []

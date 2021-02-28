@@ -14,7 +14,7 @@ function (*i32) xyz (const i32 x, const i32 y) {
     var i32 zz = (x +( x +hello ));
     
     #check this later again
-    #var *i32 z;
+    var *i32 z;
     return z;
 };
 function i32 main(const i32 argc, const (**i8) argv) {
