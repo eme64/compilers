@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
 # TODO:
-# some TODO's
-# function calls
 # function type
 # some operators
 # add Null and NullType
@@ -917,10 +915,29 @@ class ASTObjectStruct(ASTObject):
             #lex.mark_token(self.name_token)
         
         # check body:
-        # TODO l[2]
+        unpack = ptparse_unpack_brackets(l[2],"{")
+        if unpack is None:
+            print("PTParseError: syntax error: expected struct body brackets.")
+            ptparse_markfirsttokeninlist([l[2]],lex)
+            quit()
+        
+        unpack = ptparse_strip(unpack)
+        tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
+
+        # parse list of body instructions.
+        # They are a sequence of declarations.
+        self.body = []
+        for ll in listoflists:
+            if len(ll) > 0:
+                exp = ASTObjectExpressionDeclaration((False,([],[ll])), lex, self)
+                self.body.append(exp)
  
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[Struct] {self.name}")
+        print(" "*depth + f"body:")
+        for exp in self.body:
+            exp.print_ast(depth = depth+step)
+ 
 
 class ASTObjectExpression(ASTObject):
     """

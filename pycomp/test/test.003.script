@@ -13,8 +13,8 @@ function (*i32) xyz (const i32 x, const i32 y) {
     var i32 z = x = x + y;
     var i32 zz = (x +( x +hello ));
     
-    #check this later again
-    var *i32 z;
+    #leads to error (expected)
+    #var *i32 z;
     return z;
 };
 function i32 main(const i32 argc, const (**i8) argv) {
@@ -26,6 +26,7 @@ function i32 main(const i32 argc, const (**i8) argv) {
 struct ABC {
    var i32 x;
    var i32 y;
+   const i32 z;
 };
 
 
