@@ -1,10 +1,16 @@
-//import "test.003.a.script";
+#import "test.003.a.script";
 
 /* hello world
    and another line
    and final line */ const i32 aaaa;
 
 /*** hello world ****/ const i32 bbbb;
+
+#ECHO hello world
+#DEFINE abc
+#IFDEF abc
+something foolish
+#ENDIF //abc
 
 const i32 xxx = 123;
 var i32 asdf = 123;

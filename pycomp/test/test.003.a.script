@@ -1,0 +1,3 @@
+# import script for "test.003.script"
+
+const i32 import_const = 1234;

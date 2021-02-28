@@ -146,6 +146,11 @@ class Lexer:
         print(self.lines[self.line][:-1])
         print(" "*self.pos+"^")
 
+    def mark_line(self,linenum):
+        print(f"in {self.filename}:{linenum}")
+        print(self.lines[self.line][:-1])
+
+
     def mark_start(self):
         print(f"in {self.filename}:{self.line}")
         print(self.lines[self.line][:-1])
@@ -369,19 +374,44 @@ class BasicLexer(Lexer):
             return (True, "init", pos)
         
         # preprocessor:
-        global preprocessor_capture
-        preprocessor_capture = []
         def action_preprocess(line,linenum,state,start,pos):
-            global preprocessor_capture
-            preprocessor_capture.append(line[pos])
             return (True, "pre", pos)
         def action_preprocess_end(line,linenum,state,start,pos):
-            global preprocessor_capture
-            s = "".join(preprocessor_capture)
-            print(s)
-            assert(False)
-            preprocessor_capture = []
+            preprocessor_exec(line,linenum)
             return (True, "init", pos)
+        
+        def preprocessor_exec(line,linenum):
+            # strip beginning including first #
+            i = line.find("#")+1
+            strip = line[i:-1]
+            
+            # extract command + rest
+            j = strip.find(" ")
+            cmd = strip[:j].upper()
+            rest = strip[j+1:]
+
+            if cmd == "ECHO":
+                print("PreprocessorEcho",end=" ")
+                self.mark_line(linenum)
+            elif cmd == "IMPORT":
+                self.mark_line(linenum)
+                assert(False and "not implemented")
+            elif cmd == "DEFINE":
+                self.mark_line(linenum)
+                assert(False and "not implemented")
+            elif cmd == "UNDEFINE":
+                self.mark_line(linenum)
+                assert(False and "not implemented")
+            elif cmd == "IFDEF":
+                self.mark_line(linenum)
+                assert(False and "not implemented")
+            elif cmd == "ENDIF":
+                self.mark_line(linenum)
+                assert(False and "not implemented")
+            else:
+                print(f"PreprocessorError: unknown command {cmd}.")
+                self.mark_line(linenum)
+                quit()
 
         self.set_rules([
             # whitespaces:

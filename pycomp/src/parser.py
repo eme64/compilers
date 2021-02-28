@@ -10,8 +10,17 @@
 # some operators
 # add Null and NullType
 # void type
-# import (header) files
-# -> recursive error reporting!
+#
+# preprocessor:
+# - import (header) files
+#   -> recursive error reporting!
+# - DEFINE abc = abcde
+#   -> chaon of tokens?
+# - token should internally refer to lex and parent token
+# - then we can use DEFINE, import etc
+# - when name is parsed: check if in DEFINE dictionary:
+#   -> append copy of all tokens in DEFINE list
+#   -> could even do function style later on
 #
 # could also be nice:
 # add syntactic sugar: x[y] -> *(x+y)
