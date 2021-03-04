@@ -42,5 +42,14 @@ struct ABC {
    var i32 x;
    var i32 y;
    const i32 z;
+   var (*ABCDEFG) abcdefg;
 };
+function i32 ABCDE(){};
+var i32 ABCDEF;
 
+struct ABCDEFG {
+   var ABCD abcd;
+};
+struct ABCD {
+   var ABC abc;
+};

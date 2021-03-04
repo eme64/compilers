@@ -1,5 +1,9 @@
-const i32 import_const = 12345;
+const i32 import_const2 = 12345;
 
 struct ERROR {
    var i32 a;
+   var u8 b;
+   var (*u8) c;
+   const u8 d;
+   var (*(u8())) e;
 };

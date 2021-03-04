@@ -220,6 +220,18 @@ class BasicLexer(Lexer):
         def action_whitespace(line,linenum,state,start,pos):
             return (True, "init", pos+1)
         
+        keyword_names = {t:1 for t in [
+                "struct","function","var","const",
+                "cast","sizeof",
+                "if","while","for",
+                "return",
+                ]}
+        builtintype_names = {t:1 for t in [
+                "i32",
+                "float","double",
+                "u64","u32","u16","u8",
+                ]}
+
         # names:
         #   letters, digit, underscore
         #   but cannot start with digit
@@ -228,7 +240,12 @@ class BasicLexer(Lexer):
             return (True, "name", start)
         def action_name_end(line,linenum,state,start,pos):
             value = line[start:pos]
-            self.push_token("name", value)
+            if value in keyword_names:
+                self.push_token("keyword", value)
+            elif value in builtintype_names:
+                self.push_token("type", value)
+            else:
+                self.push_token("name", value)
             return (False,"init", pos)
         
         # separators:

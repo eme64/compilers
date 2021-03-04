@@ -43,6 +43,7 @@
 import sys
 from collections import deque
 import lexer
+import math
 
 class Parser():
     """Parses tokens into ParseTree pt
@@ -288,11 +289,125 @@ class ASTObject():
         """
         pt: what it was generated from
         """
-        pass
+        assert(False and "cannot instantiate")
 
     def print_ast(self,depth=0,step=3):
         """recursive print the ast"""
         print(" "*depth + f"<print_ast Error: Not implemented! {type(self)}>")
+    
+    def token(self):
+        """return token that points at this object"""
+        print(f"type: {type(self)}")
+        assert(False and "token() not implemented")
+    
+    def typecheck(self,typectx):
+        """
+        input: TypeCTX
+        output: return type
+
+        determines types
+        checks for automatic conversions
+        checks if types consistent
+        """
+        assert(False and "typecheck not implemented")
+
+class TypeCTX:
+    """
+    Keeps information about types
+    """
+    def __init__(self):
+        # look up type name for ASTObjectType
+        self.typeforname = {}
+        self.sizeforname = {}
+        self.alignmentforname = {}
+        self.structmemberoffset = {}
+
+        # add all number types:
+        for name,size in ASTObjectTypeNumber_types.items():
+            ast = ASTObjectTypeNumber(None,name)
+            self.typeforname[name] = ast
+            self.sizeforname[name] = size
+            self.alignmentforname[name] = size
+    
+    def type_size(self,asttype):
+        """byte size of an ast type"""
+        if asttype.isPointer():
+            return 8
+        else:
+            return self.sizeforname[asttype.name]
+    def type_alignment(self,asttype):
+        """alignment in bytes, of an ast type"""
+        if asttype.isPointer():
+            return 8
+        else:
+            return self.alignmentforname[asttype.name]
+            
+
+    def register_structs(self,structs):
+        """Register and type check dict of structs"""
+        needed = {}
+        needed_cnt = {}
+        for name,struct in structs.items():
+            ast = ASTObjectTypeStruct(None,struct.token())
+            self.typeforname[name] = ast
+            self.structmemberoffset[name] = {}
+            needed[name] = {}
+            needed_cnt[name] = 0
+        
+        # build dependency structure
+        for name,struct in structs.items():
+            for exp in struct.body:
+                # exp is ASTObjectExpressionDeclaration
+                if exp.type.isStruct():
+                    sname = exp.type.name
+                    needed[sname][name] = 1
+                    needed_cnt[name] += 1
+                if exp.type.isFunction():
+                    print("TypeError: struct member cannot be function type. Did you want a function pointer?")
+                    exp.token().mark()
+                    quit()
+
+        # resolve those without dependencies
+        process_q = deque([name for name,cnt in needed_cnt.items() if cnt==0])
+
+        while process_q:
+            name = process_q.pop()
+            
+            # can resolve struct name:
+            struct = structs[name]
+            offset = 0
+            alignment = 0 # size of smallest component
+            for exp in struct.body:
+                # exp is ASTObjectExpressionDeclaration
+                print(name,exp.name)
+                size = self.type_size(exp.type)
+                alig = self.type_alignment(exp.type)
+                alignment = max(alignment, alig)
+                offset = alig * math.ceil(offset / alig)
+                self.structmemberoffset[name][exp.name] = offset
+                offset += size
+            offset = alignment * math.ceil(offset / alignment)
+            self.sizeforname[name] = offset
+            self.alignmentforname[name] = alignment
+
+            for sname in needed[name]:
+                needed_cnt[sname] -= 1
+                if needed_cnt[sname] <= 0:
+                    process_q.append(sname)
+
+        # check if any have remained: circularity!
+        remainder = [name for name,cnt in needed_cnt.items() if cnt!=0]
+        if len(remainder)>0:
+            name = remainder[0]
+            ast = self.typeforname[name]
+            print("TypeError: type has cyclic dependencies.")
+            ast.token().mark()
+            quit()
+
+        print("size",self.sizeforname)
+        print("alig",self.alignmentforname)
+        print("offset",self.structmemberoffset)
+        assert(False)
 
 # ################################################
 # # Helper Functions for data extraction from pt #
@@ -499,10 +614,10 @@ def ptparse_expression(pt):
                 # must unpack
                 ptsub = ll[0]
                 return ptparse_expression(ptsub)
-            elif ptparse_isToken(ll[0], [("name","var"),("name","const")]):
+            elif ptparse_isToken(ll[0], [("keyword","var"),("keyword","const")]):
                 # var/const definition
                 return ASTObjectExpressionDeclaration(pt)
-            elif ptparse_isToken(ll[0], [("name","return")]):
+            elif ptparse_isToken(ll[0], [("keyword","return")]):
                 # return statement
                 return ASTObjectExpressionReturn(pt)
             else:
@@ -512,7 +627,7 @@ def ptparse_expression(pt):
                     return ptparse_expression(pt_rtl)
                 assert(len(ll)==2)
                 
-                if ptparse_isToken(ll[0],[("name","cast")]):
+                if ptparse_isToken(ll[0],[("keyword","cast")]):
                     assert(False and "cast not implemented")
                 return ASTObjectExpressionFunctionCall(pt)
         else:
@@ -648,7 +763,7 @@ def ptparse_type(pt):
 
     if isToken:
         tk = payload
-        if tk.name == "name":
+        if tk.name == "name" or tk.name == "type":
             if tk.value in ASTObjectTypeNumber_types:
                 return ASTObjectTypeNumber(pt)
             else:
@@ -767,14 +882,17 @@ class ASTObjectTypeNumber(ASTObjectType):
     """
     number type ast object, see list in dictionary above:
     """
-    def __init__(self,pt):
-        isToken,payload = pt
-        assert(isToken)
-        tk = payload
-        assert(tk.name == "name")
-        assert(tk.value in ASTObjectTypeNumber_types)
-
-        self.name = tk.value
+    def __init__(self,pt, name=None):
+        """use name if want to generate from name"""
+        if name is None:
+            isToken,payload = pt
+            assert(isToken)
+            tk = payload
+            assert(tk.name == "name" or tk.name == "type")
+            assert(tk.value in ASTObjectTypeNumber_types)
+            self.name = tk.value
+        else:
+            self.name = name
 
     def isNumber(self):
         return True
@@ -786,12 +904,21 @@ class ASTObjectTypeStruct(ASTObjectType):
     """
     struct type ast object
     """
-    def __init__(self,pt):
-        isToken,payload = pt
-        assert(isToken)
-        tk = payload
-        assert(tk.name == "name")
-        self.name = tk.value
+    def __init__(self,pt,token = None):
+        """if from pt: only give pt, if from token set pt=None"""
+        if token is None:
+            isToken,payload = pt
+            assert(isToken)
+            tk = payload
+            assert(tk.name == "name")
+            self.name = tk.value
+            self.token_ = tk
+        else:
+            self.token_ = token
+            self.name = token.value
+    
+    def token(self):
+        return self.token_
 
     def isStruct(self):
         return True
@@ -872,11 +999,12 @@ class ASTObjectFunction(ASTObject):
             quit()
 
         # check that first is function
-        if ptparse_isToken(l[0],[("name","function")]):
+        if ptparse_isToken(l[0],[("keyword","function")]):
             pass
         else:
             print("PTParseError: syntax error: expected 'function'")
             ptparse_markfirsttokeninlist([l[0]])
+            quit()
 
         # check return type:
         self.return_type = ptparse_type(l[1])
@@ -946,6 +1074,9 @@ class ASTObjectFunction(ASTObject):
         self.varconst[arg.name] = arg
         self.arguments.append(arg)
 
+    def token(self):
+        return self.name_token
+
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[Function] {self.name}")
         print(" "*depth + f"return type:")
@@ -971,11 +1102,12 @@ class ASTObjectStruct(ASTObject):
             quit()
 
         # check that first is function
-        if ptparse_isToken(l[0],[("name","struct")]):
+        if ptparse_isToken(l[0],[("keyword","struct")]):
             pass
         else:
             print("PTParseError: syntax error: expected 'function'")
             ptparse_markfirsttokeninlist([l[0]])
+            quit()
 
         # check name:
         if ptparse_isToken(l[1],[("name",None)]):
@@ -999,6 +1131,9 @@ class ASTObjectStruct(ASTObject):
             if len(ll) > 0:
                 exp = ASTObjectExpressionDeclaration((False,([],[ll])))
                 self.body.append(exp)
+
+    def token(self):
+        return self.name_token
  
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[Struct] {self.name}")
@@ -1216,9 +1351,9 @@ class ASTObjectExpressionDeclaration(ASTObjectExpression):
             quit()
 
         # check if var / const:
-        if ptparse_isToken(l[0],[("name","var")]):
+        if ptparse_isToken(l[0],[("keyword","var")]):
             self.isMutable = True
-        elif ptparse_isToken(l[0],[("name","const")]):
+        elif ptparse_isToken(l[0],[("keyword","const")]):
             self.isMutable = False
         else:
             print("PTParseError: syntax error: expected 'const/var'")
@@ -1324,7 +1459,7 @@ class ASTObjectExpressionReturn(ASTObjectExpression):
         assert(len(listoflists)==1)
         l = listoflists[0]
 
-        if not ptparse_isToken(l[0], [("name","return")]):
+        if not ptparse_isToken(l[0], [("keyword","return")]):
             print("PTParseError: expected return statement.")
             ptparse_markfirsttokeninlist([l[0]])
             quit()
@@ -1390,9 +1525,9 @@ class ASTObjectVarConst(ASTObject):
             quit()
 
         # check if var / const:
-        if ptparse_isToken(l[0],[("name","var")]):
+        if ptparse_isToken(l[0],[("keyword","var")]):
             self.isMutable = True
-        elif ptparse_isToken(l[0],[("name","const")]):
+        elif ptparse_isToken(l[0],[("keyword","const")]):
             self.isMutable = False
         else:
             print("PTParseError: syntax error: expected 'const/var'")
@@ -1406,6 +1541,9 @@ class ASTObjectVarConst(ASTObject):
         if ptparse_isToken(l[2],[("name",None)]):
             self.name_token = l[2][1]
             self.name = l[2][1].value
+
+    def token(self):
+        return self.name_token
 
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[{'var' if self.isMutable else 'const'}] {self.name}")
@@ -1434,24 +1572,32 @@ class ASTObjectBase(ASTObject):
         ## ----------------- parse
         self.init_parse(pt)
     
+    def check_name(self,ast):
+        """check if name of ast is already taken"""
+        if ast.name in self.names:
+            print("PTParseError: duplicate name definition.")
+            ast.token().mark()
+            self.names[ast.name].token().mark()
+            quit()
+ 
     def add_varconst(self, var):
         """ var: ASTObjectVarConst
         """
-        # TODO: make function out of it, reject duplicates
+        self.check_name(var)
         self.names[var.name] = var
         self.varconst[var.name] = var
 
     def add_struct(self, struct):
         """ var: ASTObjectStruct
         """
-        # TODO: make function out of it, reject duplicates
+        self.check_name(struct)
         self.names[struct.name] = struct
         self.structs[struct.name] = struct
 
     def add_function(self, func):
         """ func: ASTObjectFunction
         """
-        # TODO: make function out of it, reject duplicates
+        self.check_name(func)
         self.names[func.name] = func
         self.functions[func.name] = func
 
@@ -1467,22 +1613,22 @@ class ASTObjectBase(ASTObject):
         for l in listoflists:
             if len(l)==0:
                 continue
-            elif ptparse_isToken(l[0],[("name","var")]):
+            elif ptparse_isToken(l[0],[("keyword","var")]):
                 # var type name
                 var = ASTObjectVarConst((False,([],[l])))
                 self.add_varconst(var)
 
-            elif ptparse_isToken(l[0],[("name","const")]):
+            elif ptparse_isToken(l[0],[("keyword","const")]):
                 # const type name
                 var = ASTObjectVarConst((False,([],[l])))
                 self.add_varconst(var)
                 
-            elif ptparse_isToken(l[0],[("name","function")]):
+            elif ptparse_isToken(l[0],[("keyword","function")]):
                 # function type name (bracket-body) {bracket-body}
                 func = ASTObjectFunction((False,([],[l])))
                 self.add_function(func)
             
-            elif ptparse_isToken(l[0],[("name","struct")]):
+            elif ptparse_isToken(l[0],[("keyword","struct")]):
                 # struct name {bracket-body}
                 struct = ASTObjectStruct((False,([],[l])))
                 self.add_struct(struct)
@@ -1509,6 +1655,19 @@ class ASTObjectBase(ASTObject):
         print(" "*depth + f"functions:")
         for name,func in self.functions.items():
             func.print_ast(depth = depth+step)
+
+    def typecheck(self):
+        typectx = TypeCTX() # new type context
+        
+        # 1 collect all struct names
+        #   typecheck struct members, including no cycles
+        typectx.register_structs(self.structs)
+
+        # 2 collect function types of functions
+        # 3 collect types of globals
+        # 4 evaluate global assignments
+        # 5 type check function bodies
+        assert(False and "not fully implemented")
  
 class PTParser():
     """Take parse tree pt, produce ast of AST objects
@@ -1559,6 +1718,8 @@ def main(argv):
 
     ast = ptp.parse(pt)
     ast.print_ast()
+
+    ast.typecheck()
 
 
 if __name__ == "__main__":
