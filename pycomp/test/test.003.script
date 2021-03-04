@@ -1,4 +1,4 @@
-//#import "test.003.a.script";
+#import "test.003.a.script"
 
 /* hello world
    and another line

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
+import os
 
 class CharSets:
     """Member functions provide common lists of characters"""
@@ -37,19 +38,30 @@ class CharSets:
         return [c for c in base if not c in rhs]
 
 class Token:
-    def __init__(self,lex,name,value,line,start):
+    def __init__(self,lex,name,value,line,start, parent = None):
         self.lex = lex
         self.name = name
         self.value = value
         self.line = line
         self.start = start
+        self.parent = parent
+        self.depth = 0
+        if self.parent is not None:
+            self.depth = self.parent.depth + 1
+            if self.depth > 100:
+                print("LexError: lexer depth exceeded.")
+                self.mark()
+                quit()
 
     def __repr__(self):
         return f"<{self.name}, {self.value}, {self.line}, {self.start}>"
     def mark(self):
         """Mark token"""
-        self.lex.mark_token(self)
-
+        if self.parent is not None:
+            self.parent.mark()
+        print(f"in {self.lex.filename}:{self.line}")
+        print(self.lex.lines[self.line][:-1])
+        print(" "*self.start+"^")
 
 class Lexer:
     """FSM based lexer
@@ -65,13 +77,15 @@ class Lexer:
         """Constructor"""
         self.rules = []
         self.state_dict = {}
+        self.isUsed = False
+        self.anchor_token = None
     
     def push_token(self, name, value):
         """Push current token for a type name and value
         
         internally, also start position in line are remembered
         """
-        token = Token(self,name,value,self.line,self.start)
+        token = Token(self,name,value,self.line,self.start,self.anchor_token)
         #print("push_token:",token)
         self.tokens.append(token)
 
@@ -103,6 +117,9 @@ class Lexer:
 
     def lex(self, seq, filename):
         """lexes a sequence seq, returns a list of tokens. filename for error messages"""
+        assert(self.isUsed == False)
+        self.isUsed = True
+
         self.filename = filename
         self.tokens = []
         self.start = 0
@@ -155,12 +172,18 @@ class Lexer:
 
         return self.tokens
     
+    def mark_parent(self):
+        if self.parent is not None:
+            self.parent.mark_start()
+
     def mark_pos(self):
+        self.mark_parent()
         print(f"in {self.filename}:{self.line}")
         print(self.lines[self.line][:-1])
         print(" "*self.pos+"^")
 
     def mark_line(self,linenum):
+        self.mark_parent()
         print(f"in {self.filename}:{linenum}")
         print(self.lines[self.line][:-1])
 
@@ -169,14 +192,6 @@ class Lexer:
         print(f"in {self.filename}:{self.line}")
         print(self.lines[self.line][:-1])
         print(" "*self.start+"^")
-
-    def mark_token(self,token):
-        tname,tval,tline,tstart = token
-        print(f"in {self.filename}:{tline}")
-        print(self.lines[tline][:-1])
-        print(" "*tstart+"^")
-
-
 
 
 class BasicLexer(Lexer):
@@ -188,9 +203,15 @@ class BasicLexer(Lexer):
     - comma, semicolon
     - operators (for list see below)
     - single line comments starting with #
+    
+    Macros:
+    - ECHO: prints whole line
+    - IMPORT: lex other file, append tokens to list
     """
-    def __init__(self):
+    def __init__(self, parent = None, anchor_token = None):
         super().__init__()
+        self.parent = parent
+        self.anchor_token = anchor_token
 
         ### set up rules:
         
@@ -408,8 +429,36 @@ class BasicLexer(Lexer):
                 print("PreprocessorEcho",end=" ")
                 self.mark_line(linenum)
             elif cmd == "IMPORT":
-                self.mark_line(linenum)
-                assert(False and "not implemented")
+                anchor_token = Token(self,"anchor","anchor",linenum,i,self.anchor_token)
+                sublex = BasicLexer(self,anchor_token)
+                
+                filename = rest.strip()
+                isLib = False
+                if filename.startswith("\"") and filename.endswith("\""):
+                    filename = filename[1:-1]
+                elif filename.startswith("<") and filename.endswith(">"):
+                    filename = filename[1:-1]
+                    isLib = True
+                    assert(False and "library not implemented yet")
+                else:
+                    print(f"LexError: import expects \"path\" or <library>, got '{filename}'.")
+                    self.mark_line(linenum)
+                    quit()
+
+                ddir, _ = os.path.split(self.filename)
+                fname = os.path.join(ddir, filename)
+                
+                try:
+                    with open(fname,"r") as f:
+                        seq = f.read()
+                except:
+                    print(f"LexError: import file not found.")
+                    self.mark_line(linenum)
+                    quit()
+                
+                tokens = sublex.lex(seq,fname)
+                self.tokens += tokens
+
             elif cmd == "DEFINE":
                 self.mark_line(linenum)
                 assert(False and "not implemented")

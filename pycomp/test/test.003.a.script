@@ -1,3 +1,4 @@
-# import script for "test.003.script"
-
+// import script for "test.003.script"
+#import "test.003.ab.script"
 const i32 import_const = 1234;
+

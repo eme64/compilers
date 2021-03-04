@@ -1,0 +1,5 @@
+const i32 import_const = 12345;
+
+struct ERROR {
+   var i32 a;
+};
