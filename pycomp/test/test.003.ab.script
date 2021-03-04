@@ -1,5 +1,8 @@
 const i32 import_const2 = 12345;
 
+var ABC xyz2;
+//var ABC xyz2;
+
 struct ERROR {
    var i32 a;
    var u8 b;

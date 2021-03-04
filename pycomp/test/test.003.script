@@ -31,7 +31,7 @@ function (*i32) xyz (const i32 x, const i32 y) {
     //var *i32 z;
     return z;
 };
-function i32 main(const i32 argc, const (**i8) argv) {
+function i32 main(const i32 argc, const (**u8) argv) {
     xyz(1,2);
     asdf(1,2)(2,3)(3,4)(4,5+5+6);
     //var (*i32) x = cast(*i32,y)

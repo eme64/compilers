@@ -11,6 +11,7 @@
 # add Null and NullType
 # void type
 # cast, sizeof
+# allow double declaration, only single definition (var, function)
 #
 # preprocessor:
 # - import (header) files
@@ -342,6 +343,19 @@ class TypeCTX:
         else:
             return self.alignmentforname[asttype.name]
             
+    def check_function_signatures(self,functions):
+        """type check dict of functions (their signatures)
+        call this after register_structs
+        """
+        for name,func in functions.items():
+            func.checkSignature(self)
+            
+    def check_globals(self,varconsts):
+        """type check dict of globals (varconst)
+        call this after register_structs
+        """
+        for name,var in varconsts.items():
+            var.checkType(self)
 
     def register_structs(self,structs):
         """Register and type check dict of structs"""
@@ -410,11 +424,9 @@ class TypeCTX:
             print("TypeError: type has cyclic dependencies.")
             ast.token().mark()
             quit()
-
-        print("size",self.sizeforname)
-        print("alig",self.alignmentforname)
-        print("offset",self.structmemberoffset)
-        assert(False)
+        #print("size",self.sizeforname)
+        #print("alig",self.alignmentforname)
+        #print("offset",self.structmemberoffset)
 
 # ################################################
 # # Helper Functions for data extraction from pt #
@@ -766,7 +778,6 @@ def ptparse_type(pt):
     - operators
     """
     
-    print("ptparse_type",pt)
     isToken,payload = pt
 
     if isToken:
@@ -790,7 +801,6 @@ def ptparse_type(pt):
                 return ptparse_type(strip)
             elif len(ll)==2:
                 # function type
-                print("function type!",ll)
                 return ASTObjectTypeFunction(pt) 
             else:
                 print("PTParseError: syntax error: around type description.")
@@ -969,8 +979,6 @@ class ASTObjectTypeFunction(ASTObjectType):
         assert(len(ll)==2)
 
         # return type:
-        print("top",pt)
-        print("check",ll[0])
         self.return_type = ptparse_type(ll[0])
 
         # argument types:
@@ -1123,6 +1131,13 @@ class ASTObjectFunction(ASTObject):
         for exp in self.body:
             exp.print_ast(depth = depth+step)
  
+    def checkSignature(self, typectx):
+        """Check type validity of signature"""
+        self.return_type.checkValid(typectx)
+        for arg in self.arguments:
+            arg.type.checkValid(typectx)
+
+        
 class ASTObjectStruct(ASTObject):
     """
     Struct ast object
@@ -1587,6 +1602,10 @@ class ASTObjectVarConst(ASTObject):
         if self.expression is not None:
             print(" "*depth + f"expression:")
             self.expression.print_ast(depth = depth+step)
+    
+    def checkType(self,typectx):
+        """Only check type of variable"""
+        self.type.checkValid(typectx)
 
 class ASTObjectBase(ASTObject):
     """
@@ -1699,8 +1718,13 @@ class ASTObjectBase(ASTObject):
         typectx.register_structs(self.structs)
 
         # 2 collect function types of functions
+        typectx.check_function_signatures(self.functions)
+
         # 3 collect types of globals
+        typectx.check_globals(self.varconst)
+        
         # 4 evaluate global assignments
+
         # 5 type check function bodies
         assert(False and "not fully implemented")
  
