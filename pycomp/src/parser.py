@@ -10,6 +10,7 @@
 # some operators
 # add Null and NullType
 # void type
+# cast, sizeof
 #
 # preprocessor:
 # - import (header) files
@@ -100,13 +101,12 @@ class Parser():
         """purely for debugging purposes"""
         isToken, payload = pt
         if isToken:
-            tname,tval,tline,tstart = payload
-            print(" "*depth + f"<{tname:10}> {tval}")
+            tk = payload
+            print(" "*depth + f"<{tk.name:10}> {tk.value}")
         else:
             tokens,listoflists = payload
             for t in tokens:
-                tname,tval,tline,tstart = t
-                print(" "*depth + f"[{tname:10}] {tval}")
+                print(" "*depth + f"[{t.name:10}] {t.value}")
             i = 0
             for l in listoflists:
                 print(" "*depth + f"#{i}")
@@ -142,24 +142,23 @@ class BasicParser(Parser):
             for pt in nodes:
                 isToken,payload = pt
                 if isToken:
-                    token = payload
-                    tname,tval,tline,tstart = token
-                    if tname == "bracket":
-                        if tval in bracket_map:
+                    tk = payload
+                    if tk.name == "bracket":
+                        if tk.value in bracket_map:
                             # close bracket
                             # check if there is an opening bracket:
                             if cur_token is None:
                                 print("ParseError: missing opening bracket.")
-                                lex.mark_token(token)
+                                tk.mark()
                                 quit()
                             
                             # check if matches cur_token
-                            expect = bracket_map[tval]
-                            cur_token_val = cur_token[1]
+                            expect = bracket_map[tk.value]
+                            cur_token_val = cur_token.value
 
                             if cur_token_val == expect:
                                 # create a new bracket pt node:
-                                new_node = (False,([cur_token,token],[cur_nodes]))
+                                new_node = (False,([cur_token,tk],[cur_nodes]))
                                 # pop from stack
                                 cur_token, cur_nodes = q.pop()
 
@@ -167,15 +166,15 @@ class BasicParser(Parser):
                                 cur_nodes.append(new_node)
                             else:
                                 print("ParseError: closing bracket did not match with opening bracket.")
-                                lex.mark_token(cur_token)
-                                lex.mark_token(token)
+                                cur_token.mark()
+                                token.mark()
                                 quit()
 
                         else:
                             # open bracket
                             # push cur to stack
                             q.append((cur_token,cur_nodes))
-                            cur_token = token
+                            cur_token = tk
                             cur_nodes = []
                     else:
                         cur_nodes.append(pt)
@@ -185,7 +184,7 @@ class BasicParser(Parser):
             # check if all brackets were matched:
             if not cur_token is None:
                 print("ParseError: opening bracket without closing bracket.")
-                lex.mark_token(cur_token)
+                cur_token.mark()
                 quit()
 
             return cur_nodes
@@ -204,8 +203,8 @@ class BasicParser(Parser):
                 for pt in nodes:
                     isToken,payload = pt
                     if isToken:
-                        tname,tval,_,_ = payload
-                        key = (tname,tval)
+                        tk = payload
+                        key = (tk.name,tk.value)
                         if key in token_dict:
                             occ += 1
 
@@ -219,8 +218,8 @@ class BasicParser(Parser):
                 for pt in nodes:
                     isToken,payload = pt
                     if isToken:
-                        tname,tval,_,_ = payload
-                        key = (tname,tval)
+                        tk = payload
+                        key = (tk.name,tk.value)
                         if key in token_dict:
                             tokens.append(payload)
                             listoflists.append(cur_nodes)
@@ -326,7 +325,7 @@ def ptparse_unpack_brackets(pt,bracket):
     if len(tokens) !=2 or len(listoflists)!=1:
         return None
     
-    if tokens[0][0] != "bracket" or tokens[0][1] != bracket:
+    if tokens[0].name != "bracket" or tokens[0].value != bracket:
         return None
 
     # success
@@ -359,8 +358,7 @@ def ptparse_delimiter_list(pt,delimiters):
                 assert(False)
         else:
             for t in tokens:
-                tname,tval,_,_ = t
-                if (not (tname,tval) in ddict) and (not (tname,None) in ddict):
+                if (not (t.name,t.value) in ddict) and (not (t.name,None) in ddict):
                     # bad token
                     return ([],[pt])
             # all tokens were ok
@@ -381,8 +379,7 @@ def ptparse_isdelimiterlist(pt,delimiters):
             return False
         else:
             for t in tokens:
-                tname,tval,_,_ = t
-                if (not (tname,tval) in ddict) and (not (tname,None) in ddict):
+                if (not (t.name,t.value) in ddict) and (not (t.name,None) in ddict):
                     # bad token
                     return False
             # all tokens were ok
@@ -411,8 +408,8 @@ def ptparse_isToken(pt, token_list=None):
         if token_list is None:
             return True
         tdict = {d:1 for d in token_list}
-        tname,tval,_,_ = payload
-        if (tname,tval) in tdict or (tname,None) in tdict:
+        tk = payload
+        if (tk.name,tk.value) in tdict or (tk.name,None) in tdict:
             return True
         else:
             return False
@@ -423,9 +420,7 @@ def ptparse_tokenmin(t1,t2):
         return t2
     if t2 is None:
         return t1
-    _,_,t1l,t1s = t1
-    _,_,t2l,t2s = t2
-    if t1l < t2l or (t1l==t2l and t1s <= t2s):
+    if t1.line < t2.line or (t1.line==t2.line and t1.start <= t2.start):
         return t1
     else:
         return t2
@@ -445,15 +440,15 @@ def ptparse_getfirsttoken(pt):
                 cur = ptparse_tokenmin(cur, ptparse_getfirsttoken(pt2))
         return cur
 
-def ptparse_markfirsttokeninlist(l,lex):
+def ptparse_markfirsttokeninlist(l):
     """takes list of pt's, search recursively for first token"""
     cur = None
     for pt in l:
         cur = ptparse_tokenmin(cur, ptparse_getfirsttoken(pt))
-    lex.mark_token(cur)
+    cur.mark()
 
 
-def ptparse_getlist(pt,lex,k):
+def ptparse_getlist(pt,k):
     """if pt = (False,[],[[k-elements]])
     return list of k-elements
     else: return None
@@ -482,16 +477,16 @@ def ptparse_expression(pt,lex, parent):
     isToken,payload = pt
 
     if isToken:
-        tname,tval,_,_ = payload
-        if tname == "name":
+        tk = payload
+        if tk.name == "name":
             return ASTObjectExpressionName(pt,lex,parent)
-        elif tname == "str":
+        elif tk.name == "str":
             return ASTObjectExpressionString(pt,lex,parent)
-        elif tname == "num":
+        elif tk.name == "num":
             return ASTObjectExpressionNumber(pt,lex,parent)
         else:
             print("PTParseError: unexpected token (expected: name, string or number)")
-            lex.mark_token(payload)
+            tk.mark()
             quit()
             
     else:
@@ -524,22 +519,22 @@ def ptparse_expression(pt,lex, parent):
                 return ASTObjectExpressionFunctionCall(pt, lex, parent)
         else:
             # inspect first token:
-            tname,tval,_,_ = tokens[0]
-            if tname == "operator":
+            tk = tokens[0]
+            if tk.name == "operator":
                 return ptparse_expression_operator(pt, lex, parent)
-            elif tname == "bracket":
-                if tval == "(":
+            elif tk.name == "bracket":
+                if tk.value == "(":
                     # unpack brackets
                     unpack = ptparse_unpack_brackets(pt,"(")
                     strip = ptparse_strip(unpack)
                     if ptparse_isNothing(strip):
                         print("PTParseError: expected expression inside brackets.")
-                        lex.mark_token(tokens[0])
+                        tokens[0].mark()
                         quit()
                     return ptparse_expression(strip,lex,parent)
                 else:
                     print("PTParseError: unexpected bracket in expression.")
-                    lex.mark_token(tokens[0])
+                    tokens[0].mark()
                     quit()
             else:
                 print(tokens)
@@ -551,19 +546,19 @@ def ptparse_expression_operator(pt,lex,parent):
     assert(not isToken)
     tokens,listoflists = payload
     assert(len(tokens)>0)
-    assert(tokens[0][0] == "operator")
+    assert(tokens[0].name == "operator")
 
     # inspect first token to see what operator we have here
-    tname,tval,_,_ = tokens[0]
+    tk = tokens[0]
 
-    if tval in ["=","+=","-=","/=","*="]:
+    if tk.value in ["=","+=","-=","/=","*="]:
         if len(tokens) > 1: # if multiple assignments: break ltr
             pt_ltr = ptparse_delimiterlist_ltr(pt,lex)
             return ptparse_expression_operator(pt_ltr,lex, parent)
         
         assert(len(listoflists)==2)
         return ASTObjectExpressionAssignment(pt, lex, parent)
-    elif tval in ASTObjectExpressionBinOp_rtl_operators:
+    elif tk.value in ASTObjectExpressionBinOp_rtl_operators:
         if len(tokens) > 1: # if multiple assignments: break rtl
             pt_rtl = ptparse_delimiterlist_rtl(pt,lex)
             return ptparse_expression_operator(pt_rtl,lex, parent)
@@ -654,15 +649,15 @@ def ptparse_type(pt,lex, parent):
     isToken,payload = pt
 
     if isToken:
-        tname,tval,_,_ = payload
-        if tname == "name":
-            if tval in ASTObjectTypeNumber_types:
+        tk = payload
+        if tk.name == "name":
+            if tk.value in ASTObjectTypeNumber_types:
                 return ASTObjectTypeNumber(pt,lex,parent)
             else:
                 return ASTObjectTypeStruct(pt,lex,parent)
         else:
             print("PTParseError: syntax error: expected type name.")
-            lex.mark_token(payload)
+            tk.mark()
             quit()
     else:
         tokens,listoflists = payload
@@ -677,31 +672,31 @@ def ptparse_type(pt,lex, parent):
                 return ASTObjectTypeFunction(pt,lex,parent) 
             else:
                 print("PTParseError: syntax error: around type description.")
-                ptparse_markfirsttokeninlist(ll,lex)
+                ptparse_markfirsttokeninlist(ll)
                 quit()
         else:
-            tname,tval,_,_ = tokens[0]
-            if tname == "bracket" and tval == "(":
+            tk = tokens[0]
+            if tk.name == "bracket" and tk.value == "(":
                 assert(len(tokens)==2)
                 assert(len(listoflists)==1)
                 # unpack bracket and strip
                 unpack = ptparse_unpack_brackets(pt,"(")
                 strip = ptparse_strip(unpack)
                 return ptparse_type(strip,lex,parent)
-            elif tname == "operator":
-                if tval == "*":
+            elif tk.name == "operator":
+                if tk.value == "*":
                     if len(tokens) > 1:
                         pt_ltr = ptparse_delimiterlist_ltr(pt,lex)
                         return ptparse_type(pt_ltr,lex,parent)
                     return ASTObjectTypePointer(pt,lex,parent)
                 else:
                     print("PTParseError: unexpected operator token in type.")
-                    lex.mark_token(payload)
+                    tk.mark()
                     quit()
 
             else:
                 print("PTParseError: unexpected token in type.")
-                lex.mark_token(payload)
+                tk.mark()
                 quit()
 
     assert(False and "panick")
@@ -740,14 +735,14 @@ class ASTObjectTypePointer(ASTObjectType):
         # * sth
         if len(tokens)>1:
             print("PTParseError: too many operator tokens for pointer type.")
-            lex.mark_token(tokens[0])
+            tokens[0].mark()
             quit()
         assert(len(listoflists)==2)
         lhs = listoflists[0]
         rhs = listoflists[1]
         if len(lhs)>0:
             print("PTParseError: syntax error: nothing allowed left of pointer type '*'.")
-            lex.mark_token(tokens[0])
+            tokens[0].mark()
             quit()
 
         # now go recursive
@@ -777,11 +772,11 @@ class ASTObjectTypeNumber(ASTObjectType):
     def __init__(self,pt,lex,parent):
         isToken,payload = pt
         assert(isToken)
-        tname,tval,_,_ = payload
-        assert(tname == "name")
-        assert(tval in ASTObjectTypeNumber_types)
+        tk = payload
+        assert(tk.name == "name")
+        assert(tk.value in ASTObjectTypeNumber_types)
 
-        self.name = tval
+        self.name = tk.value
 
     def isNumber(self):
         return True
@@ -796,9 +791,9 @@ class ASTObjectTypeStruct(ASTObjectType):
     def __init__(self,pt,lex,parent):
         isToken,payload = pt
         assert(isToken)
-        tname,tval,_,_ = payload
-        assert(tname == "name")
-        self.name = tval
+        tk = payload
+        assert(tk.name == "name")
+        self.name = tk.value
 
     def isStruct(self):
         return True
@@ -826,7 +821,7 @@ class ASTObjectTypeFunction(ASTObjectType):
         unpack = ptparse_unpack_brackets(ll[1],"(")
         if unpack is None:
             print("PTParseError: syntax error: expected brackets for arguments of function type.")
-            ptparse_markfirsttokeninlist([ll[1]],lex)
+            ptparse_markfirsttokeninlist([ll[1]])
             quit()
         
         unpack = ptparse_strip(unpack)
@@ -839,11 +834,11 @@ class ASTObjectTypeFunction(ASTObjectType):
                 if len(ll)==0:
                     if i == 0:
                         print("PTParseError: syntax error: expected function argument type before this comma.")
-                        lex.mark_token(tokens[0])
+                        tokens[0].makr()
                         quit()
                     else:
                         print("PTParseError: syntax error: expected function argument type after this comma.")
-                        lex.mark_token(tokens[i-1])
+                        tokens[i-1].mark()
                         quit()
 
         # parse the argument types
@@ -872,10 +867,10 @@ class ASTObjectFunction(ASTObject):
 
     def __init__(self,pt,lex,parent):
         # function type name (bracket-body) {bracket-body}
-        l = ptparse_getlist(pt, lex, 5) # get the 5 elements
+        l = ptparse_getlist(pt, 5) # get the 5 elements
         if l is None:
             print("PTParseError: syntax error: expected 'function type name (args) {body}'")
-            ptparse_markfirsttokeninlist([pt],lex)
+            ptparse_markfirsttokeninlist([pt])
             quit()
 
         # check that first is function
@@ -883,7 +878,7 @@ class ASTObjectFunction(ASTObject):
             pass
         else:
             print("PTParseError: syntax error: expected 'function'")
-            ptparse_markfirsttokeninlist([l[0]],lex)
+            ptparse_markfirsttokeninlist([l[0]])
 
         # check return type:
         self.return_type = ptparse_type(l[1], lex, self)
@@ -891,9 +886,7 @@ class ASTObjectFunction(ASTObject):
         # check name:
         if ptparse_isToken(l[2],[("name",None)]):
             self.name_token = l[2][1]
-            self.name = l[2][1][1]
-            #print(self.name)
-            #lex.mark_token(self.name_token)
+            self.name = l[2][1].value
         
         # check args:
         # l[3]
@@ -901,7 +894,7 @@ class ASTObjectFunction(ASTObject):
         unpack = ptparse_unpack_brackets(l[3],"(")
         if unpack is None:
             print("PTParseError: syntax error: expected function argument brackets.")
-            ptparse_markfirsttokeninlist([l[3]],lex)
+            ptparse_markfirsttokeninlist([l[3]])
             quit()
         
         unpack = ptparse_strip(unpack)
@@ -915,11 +908,11 @@ class ASTObjectFunction(ASTObject):
                 if len(ll)==0:
                     if i == 0:
                         print("PTParseError: syntax error: expected function argument before this comma.")
-                        lex.mark_token(tokens[0])
+                        tokens[0].makr()
                         quit()
                     else:
                         print("PTParseError: syntax error: expected function argument after this comma.")
-                        lex.mark_token(tokens[i-1])
+                        tokens[i-1].mark()
                         quit()
 
         # parse the arguments
@@ -934,7 +927,7 @@ class ASTObjectFunction(ASTObject):
         unpack = ptparse_unpack_brackets(l[4],"{")
         if unpack is None:
             print("PTParseError: syntax error: expected function body brackets.")
-            ptparse_markfirsttokeninlist([l[4]],lex)
+            ptparse_markfirsttokeninlist([l[4]])
             quit()
         
         unpack = ptparse_strip(unpack)
@@ -973,10 +966,10 @@ class ASTObjectStruct(ASTObject):
 
     def __init__(self,pt,lex,parent):
         # struct name {bracket-body}
-        l = ptparse_getlist(pt, lex, 3) # get the 3 elements
+        l = ptparse_getlist(pt, 3) # get the 3 elements
         if l is None:
             print("PTParseError: syntax error: expected 'struct name {body}'")
-            ptparse_markfirsttokeninlist([pt],lex)
+            ptparse_markfirsttokeninlist([pt])
             quit()
 
         # check that first is function
@@ -984,20 +977,18 @@ class ASTObjectStruct(ASTObject):
             pass
         else:
             print("PTParseError: syntax error: expected 'function'")
-            ptparse_markfirsttokeninlist([l[0]],lex)
+            ptparse_markfirsttokeninlist([l[0]])
 
         # check name:
         if ptparse_isToken(l[1],[("name",None)]):
             self.name_token = l[1][1]
-            self.name = l[1][1][1]
-            #print(self.name)
-            #lex.mark_token(self.name_token)
+            self.name = l[1][1].value
         
         # check body:
         unpack = ptparse_unpack_brackets(l[2],"{")
         if unpack is None:
             print("PTParseError: syntax error: expected struct body brackets.")
-            ptparse_markfirsttokeninlist([l[2]],lex)
+            ptparse_markfirsttokeninlist([l[2]])
             quit()
         
         unpack = ptparse_strip(unpack)
@@ -1045,33 +1036,33 @@ class ASTObjectExpressionAssignment(ASTObjectExpression):
         assert(not isToken)
         tokens,listoflists = payload
         assert(len(tokens)>0)
-        assert(tokens[0][0] == "operator")
+        assert(tokens[0].name == "operator")
         assert(len(listoflists)==2)
-        tname,tval,_,_ = tokens[0]
-        assert( tval in ["=","+=","-=","/=","*="] )
+        tk = tokens[0]
+        assert( tk.value in ["=","+=","-=","/=","*="] )
         
         lhs = listoflists[0]
         rhs = listoflists[1]
 
-        self.operator = tval
+        self.operator = tk.value
         self.token_ = tokens[0]
         self.lhs = ptparse_expression((False,([],[lhs])), lex,self)
         self.rhs = ptparse_expression((False,([],[rhs])), lex,self)
         
         if not self.lhs.isWritable():
             print("PTParseError: cannot write to left-hand-side of this assignment.")
-            lex.mark_token(tokens[0])
+            tokens[0].mark()
             quit()
 
-        if tval != "=":
+        if tk.value != "=":
             if not self.lhs.isReadable():
                 print("PTParseError: cannot read from left-hand-side of this read-modify-write operator.")
-                lex.mark_token(tokens[0])
+                tokens[0].mark()
                 quit()
 
         if not self.rhs.isReadable():
             print("PTParseError: cannot read/get value from right-hand-side of this assignment.")
-            lex.mark_token(tokens[0])
+            tokens[0].mark()
             quit()
 
     def isReadable(self):
@@ -1107,14 +1098,14 @@ class ASTObjectExpressionFunctionCall(ASTObjectExpression):
         self.func = ptparse_expression((False,([],[[lhs]])), lex,self)
         if not self.func.isReadable():
             print("PTParseError: cannot read/evaluate function name/pointer.")
-            lex.mark_token(tokens[0])
+            tokens[0].mark()
             quit()
         
         # arguments
         unpack = ptparse_unpack_brackets(rhs,"(")
         if unpack is None:
             print("PTParseError: syntax error: expected function call argument brackets.")
-            ptparse_markfirsttokeninlist([rhs],lex)
+            ptparse_markfirsttokeninlist([rhs])
             quit()
  
         unpack = ptparse_strip(unpack)
@@ -1127,11 +1118,11 @@ class ASTObjectExpressionFunctionCall(ASTObjectExpression):
                 if len(ll)==0:
                     if i == 0:
                         print("PTParseError: syntax error: expected argument before this comma.")
-                        lex.mark_token(tokens[0])
+                        tokens[0].mark()
                         quit()
                     else:
                         print("PTParseError: syntax error: expected argument after this comma.")
-                        lex.mark_token(tokens[i-1])
+                        tokens[i-1].mark()
                         quit()
 
         # parse the arguments
@@ -1140,7 +1131,7 @@ class ASTObjectExpressionFunctionCall(ASTObjectExpression):
                 arg = ptparse_expression((False,([],[ll])), lex, self)
                 if not arg.isReadable():
                     print("PTParseError: cannot read/evaluate function argument.")
-                    lex.mark_token(tokens[0])
+                    tokens[0].mark()
                     quit()
                 self.arguments.append(arg)
  
@@ -1175,27 +1166,27 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
         assert(not isToken)
         tokens,listoflists = payload
         assert(len(tokens)==1)
-        assert(tokens[0][0] == "operator")
+        assert(tokens[0].name == "operator")
         assert(len(listoflists)==2)
-        tname,tval,_,_ = tokens[0]
-        assert( tval in ASTObjectExpressionBinOp_rtl_operators )
+        tk = tokens[0]
+        assert( tk.value in ASTObjectExpressionBinOp_rtl_operators )
         
         lhs = listoflists[0]
         rhs = listoflists[1]
 
-        self.operator = tval
-        self.token_ = tokens[0]
+        self.operator = tk.value
+        self.token_ = tk
         self.lhs = ptparse_expression((False,([],[lhs])), lex,self)
         self.rhs = ptparse_expression((False,([],[rhs])), lex,self)
         
         if not self.lhs.isReadable():
             print("PTParseError: cannot read from left-hand-side of this binary operator.")
-            lex.mark_token(tokens[0])
+            tokens[0].mark()
             quit()
 
         if not self.rhs.isReadable():
             print("PTParseError: cannot read from right-hand-side of this binary operator.")
-            lex.mark_token(tokens[0])
+            tokens[0].mark()
             quit()
 
     def isReadable(self):
@@ -1220,10 +1211,10 @@ class ASTObjectExpressionDeclaration(ASTObjectExpression):
     """
     def __init__(self,pt,lex,parent):
         # parse var / const definition
-        l = ptparse_getlist(pt, lex, 3)
+        l = ptparse_getlist(pt, 3)
         if l is None:
             print("PTParseError: syntax error: expected 'const/var type name'")
-            ptparse_markfirsttokeninlist([pt],lex)
+            ptparse_markfirsttokeninlist([pt])
             quit()
 
         # check if var / const:
@@ -1233,7 +1224,7 @@ class ASTObjectExpressionDeclaration(ASTObjectExpression):
             self.isMutable = False
         else:
             print("PTParseError: syntax error: expected 'const/var'")
-            ptparse_markfirsttokeninlist([l[0]],lex)
+            ptparse_markfirsttokeninlist([l[0]])
             quit()
 
         # check type:
@@ -1242,10 +1233,10 @@ class ASTObjectExpressionDeclaration(ASTObjectExpression):
         # check name:
         if ptparse_isToken(l[2],[("name",None)]):
             self.token_ = l[2][1]
-            self.name = l[2][1][1]
+            self.name = l[2][1].value
         else:
             print("PTParseError: syntax error: expected 'const/var'")
-            ptparse_markfirsttokeninlist([l[2]],lex)
+            ptparse_markfirsttokeninlist([l[2]])
             quit()
 
     def isReadable(self):
@@ -1266,10 +1257,10 @@ class ASTObjectExpressionName(ASTObjectExpression):
     def __init__(self,pt,lex,parent):
         isToken, payload = pt
         assert(isToken)
-        tname,tval,_,_ = payload
-        assert(tname == "name")
-        self.name = tval
-        self.token_ = payload
+        tk = payload
+        assert(tk.name == "name")
+        self.name = tk.value
+        self.token_ = tk
 
     def isReadable(self):
         return True
@@ -1287,10 +1278,10 @@ class ASTObjectExpressionNumber(ASTObjectExpression):
     def __init__(self,pt,lex,parent):
         isToken, payload = pt
         assert(isToken)
-        tname,tval,_,_ = payload
-        assert(tname == "num")
-        self.number = tval
-        self.token_ = payload
+        tk = payload
+        assert(tk.name == "num")
+        self.number = tk.value
+        self.token_ = tk
 
     def isReadable(self):
         return True
@@ -1308,10 +1299,10 @@ class ASTObjectExpressionString(ASTObjectExpression):
     def __init__(self,pt,lex,parent):
         isToken, payload = pt
         assert(isToken)
-        tname,tval,_,_ = payload
-        assert(tname == "str")
-        self.string = tval
-        self.token_ = payload
+        tk = payload
+        assert(tk.name == "str")
+        self.string = tk.value
+        self.token_ = tk
 
     def isReadable(self):
         return True
@@ -1337,21 +1328,21 @@ class ASTObjectExpressionReturn(ASTObjectExpression):
 
         if not ptparse_isToken(l[0], [("name","return")]):
             print("PTParseError: expected return statement.")
-            ptparse_markfirsttokeninlist([l[0]],lex)
+            ptparse_markfirsttokeninlist([l[0]])
             quit()
 
         self.token_ = l[0][1]
 
         if len(l) !=2:
             print(f"PTParseError: syntax error in print statement. (expected 'return <expression>')")
-            ptparse_markfirsttokeninlist([l[0]],lex)
+            ptparse_markfirsttokeninlist([l[0]])
             quit()
 
         self.expression = ptparse_expression(l[1],lex,self)
 
         if not self.expression.isReadable():
             print("PTParseError: cannot read/evaluate return expression.")
-            ptparse_markfirsttokeninlist([l[1]],lex)
+            ptparse_markfirsttokeninlist([l[1]])
             quit()
 
     def isReadable(self):
@@ -1395,10 +1386,10 @@ class ASTObjectVarConst(ASTObject):
             lhs = pt
 
         # parse var / const definition
-        l = ptparse_getlist(lhs, lex, 3)
+        l = ptparse_getlist(lhs, 3)
         if l is None:
             print("PTParseError: syntax error: expected 'const/var type name'")
-            ptparse_markfirsttokeninlist([lhs],lex)
+            ptparse_markfirsttokeninlist([lhs])
             quit()
 
         # check if var / const:
@@ -1408,7 +1399,7 @@ class ASTObjectVarConst(ASTObject):
             self.isMutable = False
         else:
             print("PTParseError: syntax error: expected 'const/var'")
-            ptparse_markfirsttokeninlist([l[0]],lex)
+            ptparse_markfirsttokeninlist([l[0]])
             quit()
 
         # check type:
@@ -1417,9 +1408,7 @@ class ASTObjectVarConst(ASTObject):
         # check name:
         if ptparse_isToken(l[2],[("name",None)]):
             self.name_token = l[2][1]
-            self.name = l[2][1][1]
-            #print(self.name)
-            #lex.mark_token(self.name_token)
+            self.name = l[2][1].value
 
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[{'var' if self.isMutable else 'const'}] {self.name}")
@@ -1509,7 +1498,7 @@ class ASTObjectBase(ASTObject):
                 self.add_varconst(lex,var)
             else:
                 print("PTParseError: bad syntax (expect: var, const, function or struct statement)")
-                ptparse_markfirsttokeninlist(l,lex)
+                ptparse_markfirsttokeninlist(l)
                 quit()
 
     
@@ -1556,7 +1545,7 @@ def main(argv):
     
     print("Lexing...")
     tokens = l.lex(seq,filename)
-    print(tokens)
+    print([str(t) for t in tokens])
     
     print("Parsing tokens into pt ...")
     

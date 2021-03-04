@@ -36,6 +36,20 @@ class CharSets:
         rhs = set(sub)
         return [c for c in base if not c in rhs]
 
+class Token:
+    def __init__(self,lex,name,value,line,start):
+        self.lex = lex
+        self.name = name
+        self.value = value
+        self.line = line
+        self.start = start
+
+    def __repr__(self):
+        return f"<{self.name}, {self.value}, {self.line}, {self.start}>"
+    def mark(self):
+        """Mark token"""
+        self.lex.mark_token(self)
+
 
 class Lexer:
     """FSM based lexer
@@ -57,7 +71,7 @@ class Lexer:
         
         internally, also start position in line are remembered
         """
-        token = (name,value,self.line,self.start)
+        token = Token(self,name,value,self.line,self.start)
         #print("push_token:",token)
         self.tokens.append(token)
 
@@ -497,7 +511,7 @@ def main(argv):
                )
     
     tokens = l.lex(seq, filename)
-    print(tokens)
+    print([str(t) for t in tokens])
 
 if __name__ == "__main__":
     main(sys.argv[1:])
