@@ -5,5 +5,6 @@ struct ERROR {
    var u8 b;
    var (*u8) c;
    const u8 d;
-   var (*(u8())) e;
+   var (*(u8(*ERROR))) e;
+   var (*ABC) xyz;
 };

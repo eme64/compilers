@@ -360,6 +360,10 @@ class TypeCTX:
                 # exp is ASTObjectExpressionDeclaration
                 if exp.type.isStruct():
                     sname = exp.type.name
+                    if sname not in needed:
+                        print("TypeError: struct type not found.")
+                        exp.type.token().mark()
+                        quit()
                     needed[sname][name] = 1
                     needed_cnt[name] += 1
                 if exp.type.isFunction():
@@ -379,7 +383,10 @@ class TypeCTX:
             alignment = 0 # size of smallest component
             for exp in struct.body:
                 # exp is ASTObjectExpressionDeclaration
-                print(name,exp.name)
+                # check if type is valid
+                exp.type.checkValid(self)
+                
+                # calculate alignment
                 size = self.type_size(exp.type)
                 alig = self.type_alignment(exp.type)
                 alignment = max(alignment, alig)
@@ -473,7 +480,7 @@ def ptparse_delimiter_list(pt,delimiters):
             for t in tokens:
                 if (not (t.name,t.value) in ddict) and (not (t.name,None) in ddict):
                     # bad token
-                    return ([],[pt])
+                    return ([],[[pt]])
             # all tokens were ok
             return (tokens,listoflists)
 
@@ -759,6 +766,7 @@ def ptparse_type(pt):
     - operators
     """
     
+    print("ptparse_type",pt)
     isToken,payload = pt
 
     if isToken:
@@ -782,6 +790,7 @@ def ptparse_type(pt):
                 return ptparse_type(strip)
             elif len(ll)==2:
                 # function type
+                print("function type!",ll)
                 return ASTObjectTypeFunction(pt) 
             else:
                 print("PTParseError: syntax error: around type description.")
@@ -835,6 +844,10 @@ class ASTObjectType(ASTObject):
     def isFunction(self):
         return False
 
+    def checkValid(self, typectx):
+        """Check if a type is valid"""
+        assert(False and "not implemented")
+
 class ASTObjectTypePointer(ASTObjectType):
     """
     pointer type ast object
@@ -867,7 +880,11 @@ class ASTObjectTypePointer(ASTObjectType):
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[pointer-type]")
         self.type.print_ast(depth = depth+step)
- 
+     
+    def checkValid(self, typectx):
+        self.type.checkValid(typectx)
+
+
 ASTObjectTypeNumber_types = {
         "i32":4,
         "float":4,
@@ -899,6 +916,10 @@ class ASTObjectTypeNumber(ASTObjectType):
 
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[number-type] {self.name}")
+    
+    def checkValid(self, typectx):
+        assert(self.name in typectx.typeforname)
+        assert(typectx.typeforname[self.name].isNumber())
  
 class ASTObjectTypeStruct(ASTObjectType):
     """
@@ -925,6 +946,14 @@ class ASTObjectTypeStruct(ASTObjectType):
 
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[struct-type] {self.name}")
+    
+    def checkValid(self, typectx):
+        if not self.name in typectx.typeforname:
+            print("TypeError: struct not declared.")
+            self.token().mark()
+            quit()
+        assert(typectx.typeforname[self.name].isStruct())
+
  
 class ASTObjectTypeFunction(ASTObjectType):
     """
@@ -940,6 +969,8 @@ class ASTObjectTypeFunction(ASTObjectType):
         assert(len(ll)==2)
 
         # return type:
+        print("top",pt)
+        print("check",ll[0])
         self.return_type = ptparse_type(ll[0])
 
         # argument types:
@@ -983,7 +1014,11 @@ class ASTObjectTypeFunction(ASTObjectType):
         print(" "*depth + f"arguments:")
         for arg in self.argument_types:
             arg.print_ast(depth = depth+step)
- 
+    
+    def checkValid(self, typectx):
+        self.return_type.checkValid(typectx)
+        for arg in self.argument_types:
+            arg.checkValid(typectx)
 
 class ASTObjectFunction(ASTObject):
     """
