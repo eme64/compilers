@@ -12,7 +12,10 @@
 //something foolish
 //#ENDIF //abc
 
-const i32 xxx = 123;
+const (*(i32(*i32,i32))) xxx;
+const (*(i32(*i32,i32))) xxx = 100;
+const (*(i32(*i32,i32))) xxx;
+const (*(i32(*i32,i32))) xxx;
 var i32 asdf = 123;
 var i32 yyy;
 var (*i32) arr = Null;

@@ -857,6 +857,12 @@ class ASTObjectType(ASTObject):
     def checkValid(self, typectx):
         """Check if a type is valid"""
         assert(False and "not implemented")
+    
+    def equals(self,other):
+        print(self)
+        print(other)
+        assert(False and "not implemented")
+
 
 class ASTObjectTypePointer(ASTObjectType):
     """
@@ -894,6 +900,11 @@ class ASTObjectTypePointer(ASTObjectType):
     def checkValid(self, typectx):
         self.type.checkValid(typectx)
 
+    def equals(self,other):
+        if not type(self)==type(other):
+            return False
+        return self.type.equals(other.type)
+ 
 
 ASTObjectTypeNumber_types = {
         "i32":4,
@@ -930,6 +941,11 @@ class ASTObjectTypeNumber(ASTObjectType):
     def checkValid(self, typectx):
         assert(self.name in typectx.typeforname)
         assert(typectx.typeforname[self.name].isNumber())
+    
+    def equals(self,other):
+        if not type(self)==type(other):
+            return False
+        return self.name == other.name
  
 class ASTObjectTypeStruct(ASTObjectType):
     """
@@ -963,7 +979,11 @@ class ASTObjectTypeStruct(ASTObjectType):
             self.token().mark()
             quit()
         assert(typectx.typeforname[self.name].isStruct())
-
+ 
+    def equals(self,other):
+        if not type(self)==type(other):
+            return False
+        return self.name == other.name
  
 class ASTObjectTypeFunction(ASTObjectType):
     """
@@ -1027,6 +1047,21 @@ class ASTObjectTypeFunction(ASTObjectType):
         self.return_type.checkValid(typectx)
         for arg in self.argument_types:
             arg.checkValid(typectx)
+
+    def equals(self,other):
+        if not type(self)==type(other):
+            return False
+        if not self.return_type.equals(other.return_type):
+            return False
+        if len(self.argument_types) != len(other.argument_types):
+            return False
+        for i in range(len(self.argument_types)):
+            a1 = self.argument_types[i]
+            a2 = other.argument_types[i]
+            if not a1.equals(a2):
+                return False
+        return True
+
 
 class ASTObjectFunction(ASTObject):
     """
@@ -1606,6 +1641,34 @@ class ASTObjectVarConst(ASTObject):
     def checkType(self,typectx):
         """Only check type of variable"""
         self.type.checkValid(typectx)
+    
+    def checkCompatible(self,other):
+        """checks if two VarConst objects are compatible.
+        returns: error if not compatible (aborts)
+        or the definition if one exists
+        or else self 
+        """
+        if not (self.isMutable == other.isMutable):
+            print("PTParseError: conflicting var/const declaration.")
+            self.token().mark()
+            other.token().mark()
+            quit()
+
+        if self.expression and other.expression:
+            print("PTParseError: duplicate definition.")
+            self.token().mark()
+            other.token().mark()
+            quit()
+
+        if not self.type.equals(other.type):
+            print("TypeError: conflicting declarations.")
+            self.token().mark()
+            other.token().mark()
+            quit()
+
+        if other.expression:
+            return other
+        return self
 
 class ASTObjectBase(ASTObject):
     """
@@ -1637,7 +1700,13 @@ class ASTObjectBase(ASTObject):
     def add_varconst(self, var):
         """ var: ASTObjectVarConst
         """
-        self.check_name(var)
+        # check if varconst already given
+        if var.name in self.varconst:
+            var2 = self.varconst[var.name]
+            # check compatibility
+            var = var.checkCompatible(var2)
+        else:
+            self.check_name(var)
         self.names[var.name] = var
         self.varconst[var.name] = var
 
