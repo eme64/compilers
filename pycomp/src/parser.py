@@ -989,47 +989,53 @@ class ASTObjectTypeFunction(ASTObjectType):
     """
     function type ast object
     """
-    def __init__(self,pt):
-        isToken,payload = pt
-        assert(not isToken)
-        tokens,listoflists = payload
-        assert(len(tokens)==0)
-        assert(len(listoflists)==1)
-        ll = listoflists[0]
-        assert(len(ll)==2)
+    def __init__(self,pt,_return_type=None,_arg_types=None):
+        """If want to set from types, then can"""
+        if _return_type is not None:
+            assert(_arg_types is not None)
+            self.return_type = _return_type
+            self.argument_types = _arg_types
+        else:
+            isToken,payload = pt
+            assert(not isToken)
+            tokens,listoflists = payload
+            assert(len(tokens)==0)
+            assert(len(listoflists)==1)
+            ll = listoflists[0]
+            assert(len(ll)==2)
 
-        # return type:
-        self.return_type = ptparse_type(ll[0])
+            # return type:
+            self.return_type = ptparse_type(ll[0])
 
-        # argument types:
-        unpack = ptparse_unpack_brackets(ll[1],"(")
-        if unpack is None:
-            print("PTParseError: syntax error: expected brackets for arguments of function type.")
-            ptparse_markfirsttokeninlist([ll[1]])
-            quit()
-        
-        unpack = ptparse_strip(unpack)
-        tokens,listoflists = ptparse_delimiter_list(unpack,[("comma",",")])
-        self.argument_types = []
+            # argument types:
+            unpack = ptparse_unpack_brackets(ll[1],"(")
+            if unpack is None:
+                print("PTParseError: syntax error: expected brackets for arguments of function type.")
+                ptparse_markfirsttokeninlist([ll[1]])
+                quit()
+            
+            unpack = ptparse_strip(unpack)
+            tokens,listoflists = ptparse_delimiter_list(unpack,[("comma",",")])
+            self.argument_types = []
 
-        # check that none of the lists is empty
-        if len(tokens)>0:
-            for i,ll in enumerate(listoflists):
-                if len(ll)==0:
-                    if i == 0:
-                        print("PTParseError: syntax error: expected function argument type before this comma.")
-                        tokens[0].makr()
-                        quit()
-                    else:
-                        print("PTParseError: syntax error: expected function argument type after this comma.")
-                        tokens[i-1].mark()
-                        quit()
+            # check that none of the lists is empty
+            if len(tokens)>0:
+                for i,ll in enumerate(listoflists):
+                    if len(ll)==0:
+                        if i == 0:
+                            print("PTParseError: syntax error: expected function argument type before this comma.")
+                            tokens[0].makr()
+                            quit()
+                        else:
+                            print("PTParseError: syntax error: expected function argument type after this comma.")
+                            tokens[i-1].mark()
+                            quit()
 
-        # parse the argument types
-        for ll in listoflists:
-            if len(ll)>0:
-                arg = ptparse_type((False,([],[ll])))
-                self.argument_types.append(arg)
+            # parse the argument types
+            for ll in listoflists:
+                if len(ll)>0:
+                    arg = ptparse_type((False,([],[ll])))
+                    self.argument_types.append(arg)
  
 
     def isFunction(self):
@@ -1070,9 +1076,11 @@ class ASTObjectFunction(ASTObject):
 
     def __init__(self,pt):
         # function type name (bracket-body) {bracket-body}
-        l = ptparse_getlist(pt, 5) # get the 5 elements
+        l = ptparse_getlist(pt, 5) # get the 5 elements def
         if l is None:
-            print("PTParseError: syntax error: expected 'function type name (args) {body}'")
+            l = ptparse_getlist(pt, 4) # get the 4 elements decl
+        if l is None:
+            print("PTParseError: syntax error: expected 'function type name (args) {body:optional}'")
             ptparse_markfirsttokeninlist([pt])
             quit()
 
@@ -1123,28 +1131,35 @@ class ASTObjectFunction(ASTObject):
         for ll in listoflists:
             if len(ll)>0:
                 arg = ASTObjectVarConst((False,([],[ll])))
+                if not arg.isMutable:
+                    print("PTParseError: function arguments must be var, not const.")
+                    arg.token().mark()
+                    quit()
                 self.add_argument(arg)
-                        
-        # check body:
-        # l[4]
-        # expect (comma list):
-        unpack = ptparse_unpack_brackets(l[4],"{")
-        if unpack is None:
-            print("PTParseError: syntax error: expected function body brackets.")
-            ptparse_markfirsttokeninlist([l[4]])
-            quit()
         
-        unpack = ptparse_strip(unpack)
-        tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
+        if len(l) == 5: # function definition
+            # check body:
+            # l[4]
+            # expect (comma list):
+            unpack = ptparse_unpack_brackets(l[4],"{")
+            if unpack is None:
+                print("PTParseError: syntax error: expected function body brackets.")
+                ptparse_markfirsttokeninlist([l[4]])
+                quit()
+            
+            unpack = ptparse_strip(unpack)
+            tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
 
-        # parse list of body instructions.
-        # They are a sequence of expressions.
-        # For this we apply a general expression detector.
-        self.body = []
-        for ll in listoflists:
-            if len(ll) > 0:
-                exp = ptparse_expression((False,([],[ll])))
-                self.body.append(exp)
+            # parse list of body instructions.
+            # They are a sequence of expressions.
+            # For this we apply a general expression detector.
+            self.body = []
+            for ll in listoflists:
+                if len(ll) > 0:
+                    exp = ptparse_expression((False,([],[ll])))
+                    self.body.append(exp)
+        else: # function declaration
+            self.body = None
     
     def add_argument(self,arg):
         """arg: ASTObjectVarConst
@@ -1162,15 +1177,47 @@ class ASTObjectFunction(ASTObject):
         print(" "*depth + f"arguments:")
         for arg in self.arguments:
             arg.print_ast(depth = depth+step)
-        print(" "*depth + f"body:")
-        for exp in self.body:
-            exp.print_ast(depth = depth+step)
+        if self.body:
+            print(" "*depth + f"body:")
+            for exp in self.body:
+                exp.print_ast(depth = depth+step)
+        else:
+            print(" "*depth + f"declaration")
  
     def checkSignature(self, typectx):
         """Check type validity of signature"""
         self.return_type.checkValid(typectx)
         for arg in self.arguments:
             arg.type.checkValid(typectx)
+
+    def signature(self):
+        """return type of function"""
+        return ASTObjectTypeFunction(None,
+                self.return_type,
+                [a.type for a in self.arguments])
+    
+    def checkCompatible(self,other):
+        """checks if two Function objects are compatible.
+        returns: error if not compatible (aborts)
+        or the definition if one exists
+        or else self 
+        """
+        if (not self.body is None) and (not other.body is None):
+            print("PTParseError: duplicate definition.")
+            self.token().mark()
+            other.token().mark()
+            quit()
+
+        if not self.signature().equals(other.signature()):
+            print("TypeError: conflicting function signatures in declarations.")
+            self.token().mark()
+            other.token().mark()
+            quit()
+
+        if other.body:
+            return other
+        return self
+
 
         
 class ASTObjectStruct(ASTObject):
@@ -1654,7 +1701,7 @@ class ASTObjectVarConst(ASTObject):
             other.token().mark()
             quit()
 
-        if self.expression and other.expression:
+        if (not self.expression is None) and (not other.expression is None):
             print("PTParseError: duplicate definition.")
             self.token().mark()
             other.token().mark()
@@ -1720,10 +1767,15 @@ class ASTObjectBase(ASTObject):
     def add_function(self, func):
         """ func: ASTObjectFunction
         """
-        self.check_name(func)
+        # check if function already given
+        if func.name in self.functions:
+            func2 = self.functions[func.name]
+            # check compatibility
+            func = func.checkCompatible(func2)
+        else:
+            self.check_name(func)
         self.names[func.name] = func
         self.functions[func.name] = func
-
 
     def init_parse(self,pt):
         """used in __init__ to do the parsing"""
