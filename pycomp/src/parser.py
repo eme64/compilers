@@ -12,6 +12,13 @@
 # void type
 # cast, sizeof
 # allow double declaration, only single definition (var, function)
+# if, while, scope blocks
+# various number types
+#
+# for expression typechecking:
+#  can require immediacy (no dependencies)
+#  if is immediate: can call eval on it: returns some "leaf" AST object that can replace the currently "recursive" AST object
+#  use numpy for static evaluations
 #
 # preprocessor:
 # - import (header) files
