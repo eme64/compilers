@@ -23,6 +23,21 @@
 # general typechecking done in typecheck
 # but expressions etc have to be checked during code gen
 # there we have to do all the automatic casting anyway
+# 
+# Code Generation:
+#   CodeCtx
+#   - linear blocks for: functions, globals
+#   - facility to read from name, write to name (probably more complex)
+#   - facility to evaluate expressions:
+#     - return immediate or <some var ref?>
+#   - facility to open functions, scopes, if, while, ...
+#   - How to deal with var-ref?
+#     - just place at distance of bp/sp.
+#     - really sloppy, even intermediates go to stack, need lots of stack space - but no register optimization needed.
+#     - general idea: push bp, bp=sp (now aligned). Move all args to stack. Also push callee-saved regs. Keep last result in eax, but can push if need a second branch
+#     - basically we are having a stack machine.
+#     - Ok, return is either value, or a reg., and a type info
+#     - local variables are at offset from bp (also args)
 #
 # preprocessor:
 # - import (header) files
