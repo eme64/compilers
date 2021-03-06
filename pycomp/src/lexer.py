@@ -230,6 +230,7 @@ class BasicLexer(Lexer):
                 "i32",
                 "float","double",
                 "u64","u32","u16","u8",
+                "void",
                 ]}
 
         # names:

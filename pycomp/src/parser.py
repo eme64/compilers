@@ -20,6 +20,10 @@
 #  if is immediate: can call eval on it: returns some "leaf" AST object that can replace the currently "recursive" AST object
 #  use numpy for static evaluations
 #
+# general typechecking done in typecheck
+# but expressions etc have to be checked during code gen
+# there we have to do all the automatic casting anyway
+#
 # preprocessor:
 # - import (header) files
 #   -> recursive error reporting!
@@ -52,6 +56,7 @@ import sys
 from collections import deque
 import lexer
 import math
+import numpy as np # for c style value calculations
 
 class Parser():
     """Parses tokens into ParseTree pt
@@ -308,20 +313,20 @@ class ASTObject():
         print(f"type: {type(self)}")
         assert(False and "token() not implemented")
     
-    def typecheck(self,typectx):
+    def typecheck(self):
         """
-        input: TypeCTX
-        output: return type
-
+        Used by ASTObjectBase only:
         determines types
         checks for automatic conversions
         checks if types consistent
         """
+        print(type(self))
         assert(False and "typecheck not implemented")
-
+    
 class TypeCTX:
     """
     Keeps information about types
+    But also available constants/initial variable values
     """
     def __init__(self):
         # look up type name for ASTObjectType
@@ -406,6 +411,10 @@ class TypeCTX:
                 # exp is ASTObjectExpressionDeclaration
                 # check if type is valid
                 exp.type.checkValid(self)
+                if exp.type.isVoid():
+                    print("TypeError: struct field cannot have type void.")
+                    exp.token().mark()
+                    quit()
                 
                 # calculate alignment
                 size = self.type_size(exp.type)
@@ -792,6 +801,8 @@ def ptparse_type(pt):
         if tk.name == "name" or tk.name == "type":
             if tk.value in ASTObjectTypeNumber_types:
                 return ASTObjectTypeNumber(pt)
+            elif tk.name == "type" and tk.value == "void":
+                return ASTObjectTypeVoid(pt)
             else:
                 return ASTObjectTypeStruct(pt)
         else:
@@ -860,6 +871,10 @@ class ASTObjectType(ASTObject):
         return False
     def isFunction(self):
         return False
+    def isVoid(self):
+        return False
+    def isNull(self):
+        return False
 
     def checkValid(self, typectx):
         """Check if a type is valid"""
@@ -870,6 +885,34 @@ class ASTObjectType(ASTObject):
         print(other)
         assert(False and "not implemented")
 
+    def toStr(self):
+        print(self)
+        assert(False and "not implemented")
+
+class ASTObjectTypeVoid(ASTObjectType):
+    """
+    void type ast object
+    """
+    def __init__(self,pt,token=None):
+        if pt is None:
+            # if pt is None, token cannot be None
+            assert(not token is None)
+        else:
+            assert(ptparse_isToken(pt,[("type","void")]))
+    
+    def isVoid(self):
+        return True
+
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[void-type]")
+     
+    def checkValid(self, typectx):
+        pass
+
+    def equals(self,other):
+        return type(self)==type(other)
+    def toStr(self):
+        return "void"
 
 class ASTObjectTypePointer(ASTObjectType):
     """
@@ -911,7 +954,9 @@ class ASTObjectTypePointer(ASTObjectType):
         if not type(self)==type(other):
             return False
         return self.type.equals(other.type)
- 
+
+    def toStr(self):
+        return f"*{self.type.toStr}"
 
 ASTObjectTypeNumber_types = {
         "i32":4,
@@ -954,6 +999,9 @@ class ASTObjectTypeNumber(ASTObjectType):
             return False
         return self.name == other.name
  
+    def toStr(self):
+        return self.name
+
 class ASTObjectTypeStruct(ASTObjectType):
     """
     struct type ast object
@@ -991,6 +1039,9 @@ class ASTObjectTypeStruct(ASTObjectType):
         if not type(self)==type(other):
             return False
         return self.name == other.name
+    
+    def toStr(self):
+        return self.name
  
 class ASTObjectTypeFunction(ASTObjectType):
     """
@@ -1075,6 +1126,9 @@ class ASTObjectTypeFunction(ASTObjectType):
                 return False
         return True
 
+    def toStr(self):
+        args = ",".join([a.toStr() for a in self.argument_types])
+        return f"({self.return_type.toStr()}(args))"
 
 class ASTObjectFunction(ASTObject):
     """
@@ -1723,7 +1777,7 @@ class ASTObjectVarConst(ASTObject):
         if other.expression:
             return other
         return self
-
+    
 class ASTObjectBase(ASTObject):
     """
     Base ast object for a file
@@ -1736,7 +1790,8 @@ class ASTObjectBase(ASTObject):
         # global functions
         self.functions = {}
         # global variables / constants
-        self.varconst = {}
+        self.varconst = {} # declaration/definition
+        self.varconst_definitions = [] # order of definitions
         # structs
         self.structs = {}
 
@@ -1763,6 +1818,8 @@ class ASTObjectBase(ASTObject):
             self.check_name(var)
         self.names[var.name] = var
         self.varconst[var.name] = var
+        if var.expression: # order of definitions
+            self.varconst_definitions.append(var)
 
     def add_struct(self, struct):
         """ var: ASTObjectStruct
@@ -1851,11 +1908,6 @@ class ASTObjectBase(ASTObject):
         # 3 collect types of globals
         typectx.check_globals(self.varconst)
         
-        # 4 evaluate global assignments
-
-        # 5 type check function bodies
-        assert(False and "not fully implemented")
- 
 class PTParser():
     """Take parse tree pt, produce ast of AST objects
     Via recursive decent.

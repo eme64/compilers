@@ -11,3 +11,10 @@ struct ERROR {
    var (*(u8(*ERROR))) e;
    var (*ABC) xyz;
 };
+
+function void void_fun() {};
+
+struct void_str {
+   var (*void) asdf;
+   //var void asdf2; // error
+};
