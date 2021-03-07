@@ -68,6 +68,7 @@
 # then can start thinking about asm-generation
 
 import sys
+import os
 from collections import deque
 import lexer
 import math
@@ -458,6 +459,81 @@ class TypeCTX:
         #print("size",self.sizeforname)
         #print("alig",self.alignmentforname)
         #print("offset",self.structmemberoffset)
+
+class CodeCTX:
+    """
+    Code into which code is emitted.
+    Afterwards can be called with write() to get asm to file
+    """
+
+    def __init__(self,filename,typectx):
+        """Set up facilities"""
+        self.filename = filename
+        self.typectx = typectx
+        self.data_items = []
+        self.names = {} # just to prevent duplicates
+
+    def add_data_item(self,name,dtype,value,isGlobal):
+        assert(name not in self.names)
+        self.names[name] = 1
+        self.data_items.append((name,dtype,value,isGlobal))
+
+    def write(self,infile,outfile,indent=" "*3):
+        """Write code to outfile"""
+        filename = os.path.basename(infile)
+        with open(outfile,"w") as f:
+            # Header
+            f.write(f'{indent}.file "{filename}"\n')
+            
+            # data section
+            for gname,gtype,gval,gglob in self.data_items:
+                if gtype == "byte":
+                    if gglob: # if global
+                        f.write(f'{indent}.globl {gname}\n')
+                    f.write(f'{indent}.data\n')
+                    f.write(f'{indent}.type {gname}, @object\n')
+                    f.write(f'{indent}.size {gname}, 1\n')
+                    f.write(f'{gname}:\n')
+                    f.write(f'{indent}.byte {gval}\n')
+                elif gtype == "short":
+                    if gglob: # if global
+                        f.write(f'{indent}.globl {gname}\n')
+                    f.write(f'{indent}.data\n')
+                    f.write(f'{indent}.align 2\n')
+                    f.write(f'{indent}.type {gname}, @object\n')
+                    f.write(f'{indent}.size {gname}, 2\n')
+                    f.write(f'{gname}:\n')
+                    f.write(f'{indent}.value {gval}\n')
+                elif gtype == "long":
+                    if gglob: # if global
+                        f.write(f'{indent}.globl {gname}\n')
+                    f.write(f'{indent}.data\n')
+                    f.write(f'{indent}.align 4\n')
+                    f.write(f'{indent}.type {gname}, @object\n')
+                    f.write(f'{indent}.size {gname}, 4\n')
+                    f.write(f'{gname}:\n')
+                    f.write(f'{indent}.long {gval}\n')
+                elif gtype == "quad":
+                    if gglob: # if global
+                        f.write(f'{indent}.globl {gname}\n')
+                    f.write(f'{indent}.data\n')
+                    f.write(f'{indent}.align 8\n')
+                    f.write(f'{indent}.type {gname}, @object\n')
+                    f.write(f'{indent}.size {gname}, 8\n')
+                    f.write(f'{gname}:\n')
+                    f.write(f'{indent}.quad {gval}\n')
+                else:
+                    print(f"CodeError: do not know data type '{gtype}'")
+                    quit()
+                
+            
+            # text section
+            f.write(f'{indent}.text\n')
+
+            # Footer
+            f.write(f'{indent}.ident "peterem-comp: 0.001"\n')
+            f.write(f'{indent}.section{indent}.note.GNU-stack,"",@progbits\n')
+
 
 # ################################################
 # # Helper Functions for data extraction from pt #
@@ -1912,7 +1988,8 @@ class ASTObjectBase(ASTObject):
 
     def typecheck(self):
         typectx = TypeCTX() # new type context
-        
+        self.typectx = typectx
+
         # 1 collect all struct names
         #   typecheck struct members, including no cycles
         typectx.register_structs(self.structs)
@@ -1922,7 +1999,17 @@ class ASTObjectBase(ASTObject):
 
         # 3 collect types of globals
         typectx.check_globals(self.varconst)
-        
+
+    def codegen(self, filename, outfile):
+        codectx = CodeCTX(filename,self.typectx)
+        # TODO: this works, but use it for globals now!
+        codectx.add_data_item("num1","byte",5,True)
+        codectx.add_data_item("num2","short",1000,True)
+        codectx.add_data_item("num3","long",1000000,True)
+        codectx.add_data_item("num4","quad",1000000000000,True)
+        codectx.write(filename,outfile)
+        assert(False and "implement code gen!")
+
 class PTParser():
     """Take parse tree pt, produce ast of AST objects
     Via recursive decent.
@@ -1942,12 +2029,13 @@ class PTParser():
 
 
 def main(argv):
-    if len(argv) > 0:
+    if len(argv) > 1:
         filename = argv[0]
+        outfile = argv[1]
         with open(filename, "r") as f:
             seq = f.read()
     else:
-        print("Input error: need file input for parser!")
+        print("Input error: need file input and output for parser/compiler!")
         quit()
     
     l = lexer.BasicLexer()
@@ -1974,7 +2062,9 @@ def main(argv):
     ast.print_ast()
 
     ast.typecheck()
-
+    
+    print("Generating code now")
+    ast.codegen(filename, outfile)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
