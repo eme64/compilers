@@ -38,6 +38,14 @@
 #     - basically we are having a stack machine.
 #     - Ok, return is either value, or a reg., and a type info
 #     - local variables are at offset from bp (also args)
+#     
+#     - new idea: expressions can return immediate, or rax/eax.
+#     - if an op takes multiple sub-expressions: might have to temp store rax/eax in a temp local var (like spilling)
+#     - return: just write value to rax/eax, restore sp/bp, ret
+#     - struct on stack: check alignment, alloc/dealloc - probably make variables know how much they allocated!
+#     - function call: map args to reg (rdi/xmm0...) and if needed to memory. Get offset with alignment for new sp, place in memory args.
+#     - scope: has stack of variables -> can dealloc at end.
+#
 #
 # preprocessor:
 # - import (header) files
