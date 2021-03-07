@@ -460,6 +460,73 @@ class TypeCTX:
         #print("alig",self.alignmentforname)
         #print("offset",self.structmemberoffset)
 
+class CodeCTXFunction:
+    """
+    Code context inside function
+
+    stack style:
+    -open/close variable (space on stack with a name)
+    """
+    def __init__(self,name,fid,codectx,indent = " "*3):
+        self.name = name
+        self.codectx = codectx
+        self.fid = fid # number id for function, local to file, unique in file
+
+        # stack management:
+        self.bp_diff = 0 # sp vs bp
+        # we assume it is always 8-aligned (only use pushq/popq)
+
+        self.nametooffset = {} # var name -> diff to bp
+        self.namestack = deque() # deque to verify var alloc/dealloc
+
+        # code dump
+        self.code = [] # lines of asm code
+        self.indent = indent
+    
+    def check_name(self,name):
+        if name in self.nametooffset:
+            print("CodeError: variable collision '{name}'")
+            assert(False)
+
+    def alloc_var_from_reg(self, vname, reg):
+        """Allocates variable location on stack, put value from reg in it."""
+        self.check_name(vname)
+        self.bp_diff += 8
+        self.nametooffset[vname] = self.bp_diff
+        self.namestack.append(vname)
+
+        self.code.append(f"{self.indent}pushq %{reg} # var {vname}=%{reg}")
+
+    def dealloc_var(self,vname):
+        assert(self.namestack.pop() == vname)
+        self.bp_diff-=8
+        del self.nametooffset[vname]
+        self.code.append(f"{self.indent}addq $8,%rsp # ~var {vname}")
+    def var_to_reg(self,vname,reg):
+        """write variable value to reg"""
+        assert(vname in self.nametooffset)
+        offset = self.nametooffset[vname]
+        self.code.append(f"{self.indent}movq -{offset}(%rbp),%{reg} # %{reg}={vname}")
+
+    def reg_to_var(self,vname,reg):
+        """write reg to variable location"""
+        assert(vname in self.nametooffset)
+        offset = self.nametooffset[vname]
+        self.code.append(f"{self.indent}movq %{reg}, -{offset}(%rbp) # {vname}=%{reg}")
+
+    def put_code_line(self,line):
+        """You can put any code here, but please:
+        Do not change rbp,rsp.
+        And make sure to stick to cdecl convention
+        """
+        self.code.append(f"{self.indent}{line}")
+
+    def check_close(self):
+        assert(self.bp_diff == 0)
+        assert(len(self.nametooffset)==0)
+        assert(len(self.namestack)==0)
+
+
 class CodeCTX:
     """
     Code into which code is emitted.
@@ -472,10 +539,46 @@ class CodeCTX:
         self.typectx = typectx
         self.data_items = []
         self.names = {} # just to prevent duplicates
+        self.functions = {}
+        self.function_cur = None
+    
+    def check_name(self,name):
+        if name in self.names:
+            print(f"CodeError: duplicate asm name '{name}'")
+            quit()
+        self.names[name] = 1
+
+    def function_open(self,fname):
+        self.check_name(fname)
+        assert(self.function_cur is None)
+        fid = len(self.functions)
+        self.function_cur = CodeCTXFunction(fname,fid,self)
+    def function_close(self):
+        assert(not self.function_cur is None)
+        self.function_cur.check_close()
+        self.functions[self.function_cur.name] = self.function_cur
+        self.function_cur = None
+    
+    def function_alloc_var_from_reg(self,vname,reg):
+        assert(not self.function_cur is None)
+        self.function_cur.alloc_var_from_reg(vname,reg)
+    def function_dealloc_var(self,vname):
+        assert(not self.function_cur is None)
+        self.function_cur.dealloc_var(vname)
+    def function_var_to_reg(self,vname,reg):
+        assert(not self.function_cur is None)
+        self.function_cur.var_to_reg(vname,reg)
+    def function_reg_to_var(self,vname,reg):
+        assert(not self.function_cur is None)
+        self.function_cur.reg_to_var(vname,reg)
+    def function_put_code(self,line):
+        assert(not self.function_cur is None)
+        self.function_cur.put_code_line(line)
+
+
 
     def add_data_item(self,name,dtype,value,isGlobal):
-        assert(name not in self.names)
-        self.names[name] = 1
+        self.check_name(name)
         self.data_items.append((name,dtype,value,isGlobal))
 
     def write(self,infile,outfile,indent=" "*3):
@@ -528,7 +631,32 @@ class CodeCTX:
                 
             
             # text section
-            f.write(f'{indent}.text\n')
+            for fname,func in self.functions.items():
+                f.write(f'\n')
+                f.write(f'########## Function: {fname}\n')
+                f.write(f'{indent}.text\n')
+                f.write(f'{indent}.globl {fname}\n')
+                f.write(f'{indent}.type  {fname}, @function\n')
+                f.write(f'{fname}:\n')
+                f.write(f'LFB{func.fid}:\n')
+                f.write(f'{indent}.cfi_startproc\n')
+                f.write(f'{indent}pushq %rbp\n')
+                
+                # set bp to new base:
+                f.write(f'{indent}movq  %rsp, %rbp\n')
+                f.write(f'{indent}# # body begin\n') # body begin
+                
+                for c in func.code: # dump lines
+                    f.write(c)
+                    f.write("\n")
+
+                f.write(f'{indent}# # body end\n') # body end
+                f.write(f'{indent}popq  %rbp\n')
+                f.write(f'{indent}ret\n')
+                f.write(f'{indent}.cfi_endproc\n')
+                f.write(f'LFE{func.fid}:\n')
+                f.write(f'{indent}.size  {fname}, .-{fname}\n')
+ 
 
             # Footer
             f.write(f'{indent}.ident "peterem-comp: 0.001"\n')
@@ -2002,11 +2130,28 @@ class ASTObjectBase(ASTObject):
 
     def codegen(self, filename, outfile):
         codectx = CodeCTX(filename,self.typectx)
-        # TODO: this works, but use it for globals now!
         codectx.add_data_item("num1","byte",5,True)
         codectx.add_data_item("num2","short",1000,True)
         codectx.add_data_item("num3","long",1000000,True)
         codectx.add_data_item("num4","quad",1000000000000,True)
+        codectx.function_open("func1")
+        codectx.function_alloc_var_from_reg("a","rdi")
+        codectx.function_alloc_var_from_reg("b","rsi")
+        codectx.function_alloc_var_from_reg("c","rdx")
+        codectx.function_var_to_reg("c","rax")
+        codectx.function_var_to_reg("b","rcx")
+        codectx.function_var_to_reg("a","rdx")
+        codectx.function_put_code("addl %ecx, %eax")
+        codectx.function_put_code("addl %edx, %eax")
+
+        #codectx.function_reg_to_var("a","rdi")
+        #codectx.function_var_to_reg("a","rax") # return
+        codectx.function_dealloc_var("c")
+        codectx.function_dealloc_var("b")
+        codectx.function_dealloc_var("a")
+        codectx.function_close()
+        codectx.function_open("func2")
+        codectx.function_close()
         codectx.write(filename,outfile)
         assert(False and "implement code gen!")
 

@@ -1,10 +1,16 @@
 # include <stdio.h>
 
-char num1;
-short num2;
-int num3;
-size_t num4;
+extern char num1;
+extern short num2;
+extern int num3;
+extern size_t num4;
+
+extern int func1(int a, int b, int c);
+extern void func2();
 
 int main(){
+	int res = func1(1,2,3);
+	func2();
 	printf("hello, %d, %d, %d, %ld\n",num1,num2,num3,num4);
+	printf("res: %d\n",res);
 }

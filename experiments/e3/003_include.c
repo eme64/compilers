@@ -4,5 +4,6 @@
 
 int main() {
 	other_num = add(other_num,20);
-	printf("%d\n",other_num);
+	other_num = minimum(other_num, 1000);
+	printf("%d, %d\n",other_num,num7);
 }
