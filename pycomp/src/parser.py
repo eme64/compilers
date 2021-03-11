@@ -549,6 +549,7 @@ class CodeCTX:
         self.names = {} # just to prevent duplicates
         self.functions = {}
         self.function_cur = None
+        self.tagid = 0
     
     def check_name(self,name):
         if name in self.names:
@@ -588,6 +589,11 @@ class CodeCTX:
     def add_data_item(self,name,dtype,value,isGlobal):
         self.check_name(name)
         self.data_items.append((name,dtype,value,isGlobal))
+    
+    def new_tag(self):
+        tagid = self.tagid
+        self.tagid += 1
+        return f".LC{tagid}"
 
     def write(self,infile,outfile,indent=" "*3):
         """Write code to outfile"""
@@ -633,6 +639,21 @@ class CodeCTX:
                     f.write(f'{indent}.size {gname}, 8\n')
                     f.write(f'{gname}:\n')
                     f.write(f'{indent}.quad {gval}\n')
+                elif gtype == "pointer": # same as quad?
+                    if gglob: # if global
+                        f.write(f'{indent}.globl {gname}\n')
+                    f.write(f'{indent}.data\n') # modify?
+                    f.write(f'{indent}.align 8\n')
+                    f.write(f'{indent}.type {gname}, @object\n')
+                    f.write(f'{indent}.size {gname}, 8\n')
+                    f.write(f'{gname}:\n')
+                    f.write(f'{indent}.quad {gval}\n')
+                elif gtype == "string":
+                    if gglob: # if global
+                        f.write(f'{indent}.globl {gname}\n')
+                    f.write(f'{indent}.section .rodata\n')
+                    f.write(f'{gname}:\n')
+                    f.write(f'{indent}.string "{gval}"\n')
                 else:
                     print(f"CodeError: do not know data type '{gtype}'")
                     quit()
@@ -2142,6 +2163,9 @@ class ASTObjectBase(ASTObject):
         codectx.add_data_item("num2","short",1000,True)
         codectx.add_data_item("num3","long",1000000,True)
         codectx.add_data_item("num4","quad",1000000000000,True)
+        tag = codectx.new_tag()
+        codectx.add_data_item(tag,"string","hello world",False)
+        codectx.add_data_item("str1","pointer",tag,True)
         codectx.function_open("func1")
         codectx.function_alloc_var_from_reg("a","rdi")
         codectx.function_alloc_var_from_reg("b","rsi")
@@ -2158,7 +2182,12 @@ class ASTObjectBase(ASTObject):
         codectx.function_dealloc_var("b")
         codectx.function_dealloc_var("a")
         codectx.function_close()
+        
         codectx.function_open("func2")
+        tag = codectx.new_tag()
+        codectx.add_data_item(tag,"string","new string",False) # string immediate
+        codectx.function_put_code(f"leaq {tag}(%rip), %rax") # tag to reg
+        codectx.function_put_code("movq %rax, str1(%rip)") # reg to global
         codectx.function_close()
         codectx.write(filename,outfile)
         assert(False and "implement code gen!")
