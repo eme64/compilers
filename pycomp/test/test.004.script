@@ -1,4 +1,9 @@
 struct ABC2 {
-   var int x;
-   var int y;
-}
+   var i32 x;
+   var i32 y;
+};
+
+var u8 num1 = 5;
+var u16 num2 = 1000;
+var u32 num3 = 1000000;
+var u64 num4 = 1000000000000;

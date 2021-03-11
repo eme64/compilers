@@ -45,6 +45,7 @@
 #     - struct on stack: check alignment, alloc/dealloc - probably make variables know how much they allocated!
 #     - function call: map args to reg (rdi/xmm0...) and if needed to memory. Get offset with alignment for new sp, place in memory args.
 #     - scope: has stack of variables -> can dealloc at end.
+#     - caller-saved: eax,ecx,edx - can use them to manouver in an expression part
 #
 #
 # preprocessor:
@@ -534,6 +535,12 @@ class CodeCTXFunction:
         assert(len(self.nametooffset)==0)
         assert(len(self.namestack)==0)
 
+ASM_size_to_type = {
+        1:"byte",
+        2:"short",
+        4:"long",
+        8:"quad",
+        }
 
 class CodeCTX:
     """
@@ -604,6 +611,8 @@ class CodeCTX:
             
             # data section
             for gname,gtype,gval,gglob in self.data_items:
+                info = "global" if gglob else "local"
+                f.write(f'# # data: {gname} {gtype} "{gval}" {info}\n')
                 if gtype == "byte":
                     if gglob: # if global
                         f.write(f'{indent}.globl {gname}\n')
@@ -1137,6 +1146,12 @@ class ASTObjectType(ASTObject):
         print(self)
         assert(False and "not implemented")
 
+    def softCastImmediate(self,otype,oval):
+        if otype.equals(self): # only allow if same type
+            return oval
+        else:
+            return None
+
 class ASTObjectTypeVoid(ASTObjectType):
     """
     void type ast object
@@ -1249,6 +1264,25 @@ class ASTObjectTypeNumber(ASTObjectType):
  
     def toStr(self):
         return self.name
+
+    def softCastImmediate(self,otype,oval):
+        if otype.equals(self): # only allow if same type
+            return oval
+        if otype.isNumber():
+            if self.name == "u8":
+                return np.uint8(oval)
+            elif self.name == "u16":
+                return np.uint16(oval)
+            elif self.name == "u32":
+                return np.uint32(oval)
+            elif self.name == "u64":
+                return np.uint64(oval)
+            else:
+                print(f"Warning: cannot softCastImmediate {self.toStr()} to {otype.toStr()}")
+                return None
+        else:
+            return None
+
 
 class ASTObjectTypeStruct(ASTObjectType):
     """
@@ -1603,6 +1637,16 @@ class ASTObjectExpression(ASTObject):
         # used for error messages
         assert(False)
 
+    def codegen_expression(self,codectx,needImmediate):
+        """
+        returns eType,eReg,eVal
+        eType: a type object of return value
+        eReg: True if in eax/rax, false if in eVal
+        eVal: None if in eax/rax, immediate of type eType
+        """
+        print(f"not implemented {type(self)}")
+        assert(False and "not implemented")
+
 class ASTObjectExpressionAssignment(ASTObjectExpression):
     """Assignment of some kind"""
     def __init__(self,pt):
@@ -1867,6 +1911,11 @@ class ASTObjectExpressionNumber(ASTObjectExpression):
  
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[number] {self.number}")
+
+    def codegen_expression(self,codectx,needImmediate):
+        """See super for desc"""
+        # TODO: add multiple number types
+        return ASTObjectTypeNumber(None,"u64"), False, np.uint64(self.number)
 
 class ASTObjectExpressionString(ASTObjectExpression):
     """literal string expression"""
@@ -2158,39 +2207,76 @@ class ASTObjectBase(ASTObject):
         typectx.check_globals(self.varconst)
 
     def codegen(self, filename, outfile):
-        codectx = CodeCTX(filename,self.typectx)
-        codectx.add_data_item("num1","byte",5,True)
-        codectx.add_data_item("num2","short",1000,True)
-        codectx.add_data_item("num3","long",1000000,True)
-        codectx.add_data_item("num4","quad",1000000000000,True)
-        tag = codectx.new_tag()
-        codectx.add_data_item(tag,"string","hello world",False)
-        codectx.add_data_item("str1","pointer",tag,True)
-        codectx.function_open("func1")
-        codectx.function_alloc_var_from_reg("a","rdi")
-        codectx.function_alloc_var_from_reg("b","rsi")
-        codectx.function_alloc_var_from_reg("c","rdx")
-        codectx.function_var_to_reg("c","rax")
-        codectx.function_var_to_reg("b","rcx")
-        codectx.function_var_to_reg("a","rdx")
-        codectx.function_put_code("addl %ecx, %eax")
-        codectx.function_put_code("addl %edx, %eax")
+        #codectx = CodeCTX(filename,self.typectx)
+        #codectx.add_data_item("num1","byte",5,True)
+        #codectx.add_data_item("num2","short",1000,True)
+        #codectx.add_data_item("num3","long",1000000,True)
+        #codectx.add_data_item("num4","quad",1000000000000,True)
+        #tag = codectx.new_tag()
+        #codectx.add_data_item(tag,"string","hello world",False)
+        #codectx.add_data_item("str1","pointer",tag,True)
+        #codectx.function_open("func1")
+        #codectx.function_alloc_var_from_reg("a","rdi")
+        #codectx.function_alloc_var_from_reg("b","rsi")
+        #codectx.function_alloc_var_from_reg("c","rdx")
+        #codectx.function_var_to_reg("c","rax")
+        #codectx.function_var_to_reg("b","rcx")
+        #codectx.function_var_to_reg("a","rdx")
+        #codectx.function_put_code("addl %ecx, %eax")
+        #codectx.function_put_code("addl %edx, %eax")
 
-        #codectx.function_reg_to_var("a","rdi")
-        #codectx.function_var_to_reg("a","rax") # return
-        codectx.function_dealloc_var("c")
-        codectx.function_dealloc_var("b")
-        codectx.function_dealloc_var("a")
-        codectx.function_close()
+        ##codectx.function_reg_to_var("a","rdi")
+        ##codectx.function_var_to_reg("a","rax") # return
+        #codectx.function_dealloc_var("c")
+        #codectx.function_dealloc_var("b")
+        #codectx.function_dealloc_var("a")
+        #codectx.function_close()
+        #
+        #codectx.function_open("func2")
+        #tag = codectx.new_tag()
+        #codectx.add_data_item(tag,"string","new string",False) # string immediate
+        #codectx.function_put_code(f"leaq {tag}(%rip), %rax") # tag to reg
+        #codectx.function_put_code("movq %rax, str1(%rip)") # reg to global
+        #codectx.function_close()
+        #codectx.write(filename,outfile)
         
-        codectx.function_open("func2")
-        tag = codectx.new_tag()
-        codectx.add_data_item(tag,"string","new string",False) # string immediate
-        codectx.function_put_code(f"leaq {tag}(%rip), %rax") # tag to reg
-        codectx.function_put_code("movq %rax, str1(%rip)") # reg to global
-        codectx.function_close()
+        
+        codectx = CodeCTX(filename,self.typectx)
+        
+        # 1: code gen for globals
+        self.codegen_globals(codectx)
+
+        # 2: code gen for functions
+        self.codegen_functions(codectx)
+        
         codectx.write(filename,outfile)
         assert(False and "implement code gen!")
+
+    def codegen_globals(self,codectx):
+        for name,var in self.varconst.items():
+            assert(type(var) == ASTObjectVarConst)
+            if var.expression is not None:
+                eType,eReg,eVal = var.expression.codegen_expression(codectx,needImmediate=True)
+                assert(eReg == False)
+                print(f"var {name}, {eType.toStr()}, {eReg}, {eVal}")
+                
+                newVal = var.type.softCastImmediate(eType,eVal)
+                if newVal is None:
+                    print(f"TypeError: cannot assign {eType.toStr()} to {var.type.toStr()}")
+                    var.token().mark()
+                    quit()
+
+                # now can assume newVal has type var.type
+                if var.type.isNumber():
+                    size = ASTObjectTypeNumber_types[var.type.name]
+                    asmType = ASM_size_to_type[size]
+                    codectx.add_data_item(var.name,asmType,newVal,True)
+                else:
+                    print(f"Not implemented {var.type.toStr()} global assignment.")
+            
+
+    def codegen_functions(self,ccodectx):
+        pass # TODO
 
 class PTParser():
     """Take parse tree pt, produce ast of AST objects
