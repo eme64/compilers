@@ -969,7 +969,28 @@ def ptparse_expression_operator(pt):
             return ptparse_expression_operator(pt_rtl)
         
         assert(len(listoflists)==2)
-        return ASTObjectExpressionBinOp(pt)
+        if(len(listoflists[0])==0 and len(listoflists[1])==0):
+            # pure operator
+            print("SyntaxError: cannot have operator without operands.")
+            tk.mark()
+            quit()
+        elif(len(listoflists[0])==0):
+            # unary with right operand
+            if tk.value in ASTObjectExpressionBinOp_rtl_operators_also_right_unary:
+                return ASTObjectExpressionUnaryOp(pt)
+            else:
+                print("SyntaxError: this operator is not a unary operator with a right operand.")
+                tk.mark()
+                quit()
+
+        elif(len(listoflists[1])==0):
+            # unary with left operand
+            print("SyntaxError: cannot have operator with only right operand.")
+            tk.mark()
+            quit()
+        else:
+            # binary operator
+            return ASTObjectExpressionBinOp(pt)
     else:
         print(tokens)
         assert(False and "token not handled")
@@ -1222,7 +1243,10 @@ class ASTObjectTypePointer(ASTObjectType):
         return f"*{self.type.toStr}"
 
 ASTObjectTypeNumber_types = {
+        "i64":8,
         "i32":4,
+        "i16":2,
+        "i8":1,
         "float":4,
         "double":8,
         "u64":8,
@@ -1230,6 +1254,20 @@ ASTObjectTypeNumber_types = {
         "u16":2,
         "u8":1,
         }# numbers are size in bytes
+
+ASTObjectTypeNumber_types_to_signed = {
+        "i64":"i64",
+        "i32":"i32",
+        "i16":"i16",
+        "i8":"i8",
+        "float":"float",
+        "double":"double",
+        "u64":"i64",
+        "u32":"i32",
+        "u16":"i16",
+        "u8":"i8",
+        }# numbers are size in bytes
+
 
 class ASTObjectTypeNumber(ASTObjectType):
     """
@@ -1277,12 +1315,30 @@ class ASTObjectTypeNumber(ASTObjectType):
                 return np.uint32(oval)
             elif self.name == "u64":
                 return np.uint64(oval)
+            elif self.name == "i8":
+                return np.int8(oval)
+            elif self.name == "i16":
+                return np.int16(oval)
+            elif self.name == "i32":
+                return np.int32(oval)
+            elif self.name == "i64":
+                return np.int64(oval)
             else:
                 print(f"Warning: cannot softCastImmediate {self.toStr()} to {otype.toStr()}")
                 return None
         else:
             return None
-
+    
+    def signedCastImmediate(self,oval):
+        """just cast to signed
+        return ctype,cval
+        """
+        ctype = ASTObjectTypeNumber_types_to_signed[self.name]
+        ctype = ASTObjectTypeNumber(None,ctype)
+        cval = self.softCastImmediate(ctype, oval)
+        if ctype is None:
+            print(f"Warning: cannot signedCastImmediate {self.toStr()}")
+        return ctype,cval
 
 class ASTObjectTypeStruct(ASTObjectType):
     """
@@ -1774,6 +1830,9 @@ class ASTObjectExpressionFunctionCall(ASTObjectExpression):
 ASTObjectExpressionBinOp_rtl_operators = [
         "+","-","*","/","%",
         ]
+ASTObjectExpressionBinOp_rtl_operators_also_right_unary = [
+        "-","*",
+        ]
 
 class ASTObjectExpressionBinOp(ASTObjectExpression):
     """Binary operator of any kind
@@ -1821,6 +1880,82 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
         self.lhs.print_ast(depth = depth+step)
         print(" "*depth + f"rhs:")
         self.rhs.print_ast(depth = depth+step)
+
+class ASTObjectExpressionUnaryOp(ASTObjectExpression):
+    """unary operator of any kind
+    reads left or right side
+    """
+    def __init__(self,pt):
+        isToken, payload = pt
+        assert(not isToken)
+        tokens,listoflists = payload
+        assert(len(tokens)==1)
+        assert(tokens[0].name == "operator")
+        assert(len(listoflists)==2)
+        tk = tokens[0]
+        assert( tk.value in ASTObjectExpressionBinOp_rtl_operators )
+        
+        if len(listoflists[0])==0:
+            assert(tk.value in ASTObjectExpressionBinOp_rtl_operators_also_right_unary)
+            assert(len(listoflists[1])>0)
+            self.isRight = True
+            self.arg = listoflists[1]
+        else:
+            assert(False)
+
+        self.operator = tk.value
+        self.token_ = tk
+        self.arg = ptparse_expression((False,([],[self.arg])))
+        
+        if not self.arg.isReadable():
+            print("PTParseError: cannot read from operand of this unary operator.")
+            tokens[0].mark()
+            quit()
+
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return True
+
+    def token(self):
+        return self.token_
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[UnaryOp] {self.operator}")
+        print(" "*depth + f"arg (right: {self.isRight}):")
+        self.arg.print_ast(depth = depth+step)
+    
+    def codegen_expression(self,codectx,needImmediate):
+        """See super for desc"""
+        aType,aReg,aVal = self.arg.codegen_expression(codectx,needImmediate)
+        if aReg and needImmediate:
+            print("SyntaxError: need immediate value, which was not obtainable.")
+            self.token().mark()
+            quit()
+
+        if aReg:
+            assert(False and "not implemented")
+        else:
+            # immediate value:
+            if aType.isNumber():
+                if self.operator == "-" and self.isRight:
+                    ctype,cval = aType.signedCastImmediate(aVal)
+                    if ctype is None:
+                        print(f"TypeError: could not cast '{aType.toStr()}' to a signed type.")
+                        self.token().mark()
+                        quit()
+                    else:
+                        return ctype,False,-cval # apply minus
+                else:
+                    print(f"TypeError: did not know how to apply unary operator to type '{aType.toStr()}' (right: {self.isRight})")
+                    self.token().mark()
+                    quit()
+
+            else:
+                print(f"TypeError: did not know how to apply unary operator to type '{aType.toStr()}'")
+                self.token().mark()
+                quit()
+
 
 class ASTObjectExpressionDeclaration(ASTObjectExpression):
     """var/const declaration
