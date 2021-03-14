@@ -541,6 +541,12 @@ ASM_size_to_type = {
         4:"long",
         8:"quad",
         }
+ASM_type_to_letter = {
+        "byte":"b",
+        "short":"w",
+        "long":"l",
+        "quad":"q",
+        }
 
 class CodeCTX:
     """
@@ -1348,7 +1354,7 @@ class ASTObjectTypeNumber(ASTObjectType):
         if otype.equals(self): # only allow if same type
             return oval
         if otype.isNumber():
-            isFloat = np.floor(oval) != oval
+            isFloat = otype.name in ["double","float"]
             toInteger = self.name not in ["double","float"]
 
             if isFloat and toInteger:
@@ -2116,9 +2122,18 @@ class ASTObjectExpressionName(ASTObjectExpression):
             self.token().mark()
             quit()
 
-        # check type
+        # check type conversions
+        if (not aReg) and (not aType.equals(vType)):
+            if aType.isNumber() and vType.isNumber():
+                # immediate: number to number
+                newVal = vType.softCastImmediate(aType,aVal)
+                if not newVal is None:
+                    aType = vType
+                    aVal = newVal
+        
+        # if no method of changing it works:
         if not aType.equals(vType):
-            print(f"TypeError: cannot assign '{aType.toStr()}' to '{vType.toStr()}'. - TODO autocast ???")
+            print(f"TypeError: cannot assign '{aType.toStr()}' to '{vType.toStr()}'.")
             self.token().mark()
             quit()
 
@@ -2139,11 +2154,8 @@ class ASTObjectExpressionName(ASTObjectExpression):
                         codectx.function_put_code(f"movs{suffix} {tag}(%rip), %xmm0 # {self.name} = {aVal}")
                         codectx.function_put_code(f"movs{suffix} %xmm0, {self.name}(%rip)")
                     else:
-                        if asmType == "quad":
-                            codectx.function_put_code(f"movq ${asmVal}, {self.name}(%rip) # {self.name} = {aVal}")
-                        else:
-                            print(size)
-                            assert(False and "size not handled")
+                        letter = ASM_type_to_letter[asmType]
+                        codectx.function_put_code(f"mov{letter} ${asmVal}, {self.name}(%rip) # {self.name} = {aVal}")
                 else:
                     print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
                     

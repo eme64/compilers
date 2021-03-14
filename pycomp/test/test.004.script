@@ -19,4 +19,12 @@ function void func1() {
 	num6 = 2;
 	num7 = 2.345;
 	// TODO: try other combinations !!!
+	num1 = 1;
+	num2 = 2;
+	num3 = 4;
+	num4 = -100;
+	num5 = 10;
+	num6 = -2;
+	num8 = 2.3456;
+	num9 = 222222;
 };
