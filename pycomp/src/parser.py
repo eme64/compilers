@@ -503,8 +503,13 @@ class CodeCTXFunction:
         self.bp_diff += 8
         self.nametooffset[vname] = self.bp_diff
         self.namestack.append(vname)
+        
+        if reg.startswith("xmm"):
+            self.code.append(f"{self.indent}addq $-8,%rsp # var {vname} alloc")
 
-        self.code.append(f"{self.indent}pushq %{reg} # var {vname}=%{reg}")
+            self.code.append(f"{self.indent}movsd %{reg}, -{self.bp_diff}(%rbp)# var {vname}=%{reg}")
+        else:
+            self.code.append(f"{self.indent}pushq %{reg} # var {vname}=%{reg}")
 
     def dealloc_var(self,vname):
         assert(self.namestack.pop() == vname)
@@ -522,6 +527,12 @@ class CodeCTXFunction:
         assert(vname in self.nametooffset)
         offset = self.nametooffset[vname]
         self.code.append(f"{self.indent}movq %{reg}, -{offset}(%rbp) # {vname}=%{reg}")
+    
+    def var_access_str(self,vname):
+        """get access string for variable: offset(%rbp)"""
+        assert(vname in self.nametooffset)
+        offset = self.nametooffset[vname]
+        return f"-{offset}(%rbp)"
 
     def put_code_line(self,line):
         """You can put any code here, but please:
@@ -547,6 +558,18 @@ ASM_type_to_letter = {
         "long":"l",
         "quad":"q",
         }
+ASM_type_to_rax = {
+        "byte":"al",
+        "short":"ax",
+        "long":"eax",
+        "quad":"rax",
+        }
+ASM_type_to_rcx = {
+        "byte":"cl",
+        "short":"cx",
+        "long":"ecx",
+        "quad":"rcx",
+        }
 
 class CodeCTX:
     """
@@ -564,6 +587,7 @@ class CodeCTX:
         self.function_cur = None
         self.tagid = 0
         self.globals = {}
+        self.tempid = 0
     
     def check_name(self,name):
         if name in self.names:
@@ -603,6 +627,12 @@ class CodeCTX:
         assert(not self.function_cur is None)
         self.function_cur.put_code_line(line)
 
+    def function_var_access_str(self,vname):
+        """get variable access string"""
+        assert(not self.function_cur is None)
+        return self.function_cur.var_access_str(vname)
+
+
     def function_get_name(self,name):
         """Get info about the name
         return None if name not found.
@@ -634,6 +664,12 @@ class CodeCTX:
         tagid = self.tagid
         self.tagid += 1
         return f".LC{tagid}"
+ 
+    def new_temp(self):
+        tempid = self.tempid
+        self.tempid += 1
+        return f".tmp{tempid}"
+
 
     def write(self,infile,outfile,indent=" "*3):
         """Write code to outfile"""
@@ -1288,6 +1324,28 @@ ASTObjectTypeNumber_types = {
         "u8":1,
         }# numbers are size in bytes
 
+ASTObjectTypeNumber_types_rank = {
+        "i64":6400,
+        "i32":3200,
+        "i16":1600,
+        "i8":800,
+        "float":9900,
+        "double":9901,
+        "u64":6401,
+        "u32":3201,
+        "u16":1601,
+        "u8":801,
+        }# numbers are size in bytes
+
+def number_type_max(a,b):
+    """looks at types_rank above, returns the one with max rank
+    input: type objects (not strings!)"""
+    ra = ASTObjectTypeNumber_types_rank[a.name]
+    rb = ASTObjectTypeNumber_types_rank[b.name]
+    return a if ra>=rb else b
+
+ASTObjectTypeNumber_types_float = ["double","float"]
+
 ASTObjectTypeNumber_types_to_signed = {
         "i64":"i64",
         "i32":"i32",
@@ -1354,8 +1412,8 @@ class ASTObjectTypeNumber(ASTObjectType):
         if otype.equals(self): # only allow if same type
             return oval
         if otype.isNumber():
-            isFloat = otype.name in ["double","float"]
-            toInteger = self.name not in ["double","float"]
+            isFloat = otype.name in ASTObjectTypeNumber_types_float
+            toInteger = self.name not in ASTObjectTypeNumber_types_float
 
             if isFloat and toInteger:
                 print(f"Warning: cannot softCastImmediate {otype.name} value {oval} to integer type {self.name}.")
@@ -1958,6 +2016,74 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
         self.lhs.print_ast(depth = depth+step)
         print(" "*depth + f"rhs:")
         self.rhs.print_ast(depth = depth+step)
+    
+    def codegen_expression(self,codectx,needImmediate):
+        """See super for desc"""
+        
+        # get lhs:
+        lType,lReg,lVal = self.lhs.codegen_expression(codectx,needImmediate)
+        
+        if lReg:
+            # send to local variable
+            tmp = codectx.new_temp()
+            if lType.isNumber() and lType.name in ASTObjectTypeNumber_types_float:
+                codectx.function_alloc_var_from_reg(tmp,"xmm0")
+            else:
+                codectx.function_alloc_var_from_reg(tmp,"rax")
+
+        rType,rReg,rVal = self.rhs.codegen_expression(codectx,needImmediate)
+
+        if lType.isNumber() and rType.isNumber():
+            t = number_type_max(lType,rType)
+
+            if lReg:
+                if rReg:
+                    # move lhs to rcx 
+                    if lType.isNumber() and lType.name in ASTObjectTypeNumber_types_float:
+                        codectx.function_var_to_reg(tmp,"xmm1")
+                    else:
+                        codectx.function_var_to_reg(tmp,"rcx")
+                    
+                    codectx.function_dealloc_var(tmp)
+                    
+                    # convert if needed:
+                    if not t.equals(lType):
+                        assert(False)
+                    if not t.equals(rType):
+                        assert(False)
+
+                    if t.name in ASTObjectTypeNumber_types_float:
+                        suffix = "s" if t.name == "float" else "d"
+                        
+
+                        codectx.function_put_code(f"adds{suffix} %xmm1, %xmm0 # %xmm0 = tmp + %xmm0")
+                        return t,True,None
+                    else:
+                        # perform rax = rax OP rcx in dtype t
+                        size = ASTObjectTypeNumber_types[t.name]
+                        asmType = ASM_size_to_type[size]
+                        letter = ASM_type_to_letter[asmType]
+                        rax = ASM_type_to_rax[asmType]
+                        rcx = ASM_type_to_rcx[asmType]
+                        
+                        # TODO: handle other ops
+                        codectx.function_put_code(f"add{letter} %{rcx}, %{rax} # %{rax} = tmp + %{rax}")
+                        return t,True,None
+                else:
+                    assert(False)
+            else:
+                assert(False)
+        else:
+            print(f"error: not both sides numbers {lType.toStr()} and {rType.toStr()}")
+            self.token().mark()
+            quit()
+
+        print(lType,lReg,lVal)
+        print(rType,rReg,rVal)
+        assert(False and "continue here")
+
+        return aType,aReg,aVal # forward what was written
+
 
 class ASTObjectExpressionUnaryOp(ASTObjectExpression):
     """unary operator of any kind
@@ -2104,6 +2230,49 @@ class ASTObjectExpressionName(ASTObjectExpression):
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[name] {self.name}")
 
+    def codegen_expression(self,codectx,needImmediate):
+        """check super for desc"""
+        if needImmediate:
+            print(f"error: '{self.name}' cannot be accessed statically (is not an immediate value).")
+            self.token().mark()
+            quit()
+        
+        # find out if global or local:
+        ret = codectx.function_get_name(self.name)
+         
+        if ret is None:
+            print(f"error: '{self.name}' undefined (first use in function).")
+            self.token().mark()
+            quit()
+        
+        kind,vType,isMutable = ret
+
+        if kind == 0:# global
+            if vType.isNumber():
+                size = ASTObjectTypeNumber_types[vType.name]
+                asmType = ASM_size_to_type[size]
+                if vType.name in ASTObjectTypeNumber_types_float:
+                    suffix = "s" if vType.name == "float" else "d"
+                    
+                    ## load to xmm0
+                    codectx.function_put_code(f"movs{suffix} {self.name}(%rip), %xmm0 # %xmm0 = {self.name}")
+                    return vType,True,None
+                else:
+                    letter = ASM_type_to_letter[asmType]
+                    rax = ASM_type_to_rax[asmType]
+                    codectx.function_put_code(f"mov{letter} {self.name}(%rip), %{rax} # %rax = {self.name}")
+                    return vType,True,None
+            else:
+                print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
+                
+        elif kind==1:
+            assert(False)
+        else:
+            assert(False)
+
+       
+        
+    
     def codegen_assign(self,codectx,needImmediate,aType,aReg,aVal):
         """check super for desc"""
         # find out if global or local:
@@ -2139,13 +2308,27 @@ class ASTObjectExpressionName(ASTObjectExpression):
 
         if kind == 0:# global
             if aReg:
-                assert(False)
+                if aType.isNumber():
+                    if aType.name in ASTObjectTypeNumber_types_float:
+                        suffix = "s" if aType.name == "float" else "d"
+                        ## load from xmm0
+                        codectx.function_put_code(f"movs{suffix} %xmm0, {self.name}(%rip) # {self.name} = %xmm0")
+                    else:
+                        size = ASTObjectTypeNumber_types[aType.name]
+                        asmType = ASM_size_to_type[size]
+                        letter = ASM_type_to_letter[asmType]
+                        rax = ASM_type_to_rax[asmType]
+                        codectx.function_put_code(f"mov{letter} %{rax}, {self.name}(%rip) # {self.name} = %{rax}")
+                        
+                else:
+                    print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
+                    assert(False)
             else:
                 # immediate to global
 
                 asmType,asmVal = number_to_integer_view(aType.name,aVal)
                 if aType.isNumber():
-                    if aType.name in ["float","double"]:
+                    if aType.name in ASTObjectTypeNumber_types_float:
                         suffix = "s" if aType.name == "float" else "d"
                         # dump value
                         tag = codectx.new_tag()
@@ -2158,6 +2341,7 @@ class ASTObjectExpressionName(ASTObjectExpression):
                         codectx.function_put_code(f"mov{letter} ${asmVal}, {self.name}(%rip) # {self.name} = {aVal}")
                 else:
                     print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
+                    assert(False)
                     
         elif kind==1:
             assert(False)
@@ -2582,8 +2766,10 @@ class ASTObjectBase(ASTObject):
             #codectx.function_dealloc_var("b")
             #codectx.function_dealloc_var("a")
             
+            codectx.function_put_code("")
             for exp in func.body:
                 eType,eReg,eVal = exp.codegen_expression(codectx,needImmediate=False)
+                codectx.function_put_code("")
 
             # 4 close function
             codectx.function_close()
