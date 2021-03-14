@@ -14,3 +14,9 @@ var double num7 = 1010101.1010101;
 var float num8 = 1.1;
 var float num9 = 1111;
 //var u64 num10 = 111.111;
+
+function void func1() {
+	num6 = 2;
+	num7 = 2.345;
+	// TODO: try other combinations !!!
+};

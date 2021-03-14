@@ -557,12 +557,18 @@ class CodeCTX:
         self.functions = {}
         self.function_cur = None
         self.tagid = 0
+        self.globals = {}
     
     def check_name(self,name):
         if name in self.names:
             print(f"CodeError: duplicate asm name '{name}'")
             quit()
         self.names[name] = 1
+    def del_name(self,name):
+        if not name in self.names:
+            print(f"CodeError: del name did not exist '{name}'")
+            assert(False)
+        del self.names[name]
 
     def function_open(self,fname):
         self.check_name(fname)
@@ -591,7 +597,28 @@ class CodeCTX:
         assert(not self.function_cur is None)
         self.function_cur.put_code_line(line)
 
+    def function_get_name(self,name):
+        """Get info about the name
+        return None if name not found.
+        if can find:
+        - global: return 0, gType, isMutable
+        - local:  return 1, lType, isMutable
+        """
+        
+        # check if local:
+        assert(not self.function_cur is None)
+        if name in self.function_cur.nametooffset:
+            assert(False and "local variable get not implemented")
+        elif name in self.globals:
+            gType,isMutable = self.globals[name]
+            return 0,gType,isMutable
 
+        return None
+    
+    def add_global(self,name,gType,isMutable):
+        """global variable"""
+        self.check_name(name)
+        self.globals[name] = gType,isMutable
 
     def add_data_item(self,name,dtype,value,isGlobal):
         self.check_name(name)
@@ -1268,6 +1295,20 @@ ASTObjectTypeNumber_types_to_signed = {
         "u8":"i8",
         }# numbers are size in bytes
 
+def number_to_integer_view(typeName,value):
+    """from typeName (eg float, i32, ...) to quad ..."""
+    size = ASTObjectTypeNumber_types[typeName]
+    asmType = ASM_size_to_type[size]
+    
+    # floating point number handling:
+    if typeName == "float":
+        value = value.view(np.uint32)
+    if typeName == "double":
+        value = value.view(np.uint64)
+    
+    return asmType, value
+
+
 
 class ASTObjectTypeNumber(ASTObjectType):
     """
@@ -1714,6 +1755,15 @@ class ASTObjectExpression(ASTObject):
         print(f"not implemented {type(self)}")
         assert(False and "not implemented")
 
+    def codegen_assign(self,codectx,needImmediate,aType,aReg,aVal):
+        """
+        returns eType,eReg,eVal
+        write values given, return same values
+        """
+        print(f"not implemented {type(self)}")
+        assert(False and "not implemented")
+
+
 class ASTObjectExpressionAssignment(ASTObjectExpression):
     """Assignment of some kind"""
     def __init__(self,pt):
@@ -1764,6 +1814,17 @@ class ASTObjectExpressionAssignment(ASTObjectExpression):
         self.lhs.print_ast(depth = depth+step)
         print(" "*depth + f"rhs:")
         self.rhs.print_ast(depth = depth+step)
+
+    def codegen_expression(self,codectx,needImmediate):
+        """See super for desc"""
+        assert(not needImmediate and "could maybe do if really want")
+        # get rhs:
+        aType,aReg,aVal = self.rhs.codegen_expression(codectx,needImmediate)
+        
+        # pass content to write code:
+        aType,aReg,aVal = self.lhs.codegen_assign(codectx,needImmediate, aType,aReg,aVal)
+
+        return aType,aReg,aVal # forward what was written
 
 class ASTObjectExpressionFunctionCall(ASTObjectExpression):
     """Function Call"""
@@ -2036,6 +2097,62 @@ class ASTObjectExpressionName(ASTObjectExpression):
  
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[name] {self.name}")
+
+    def codegen_assign(self,codectx,needImmediate,aType,aReg,aVal):
+        """check super for desc"""
+        # find out if global or local:
+        ret = codectx.function_get_name(self.name)
+        
+        if ret is None:
+            print(f"error: '{self.name}' undefined (first use in function).")
+            self.token().mark()
+            quit()
+        
+        kind,vType,isMutable = ret
+        
+        # check if constant:
+        if not isMutable:
+            print(f"error: cannot write to constant '{self.name}'.")
+            self.token().mark()
+            quit()
+
+        # check type
+        if not aType.equals(vType):
+            print(f"TypeError: cannot assign '{aType.toStr()}' to '{vType.toStr()}'. - TODO autocast ???")
+            self.token().mark()
+            quit()
+
+        if kind == 0:# global
+            if aReg:
+                assert(False)
+            else:
+                # immediate to global
+
+                asmType,asmVal = number_to_integer_view(aType.name,aVal)
+                if aType.isNumber():
+                    if aType.name in ["float","double"]:
+                        suffix = "s" if aType.name == "float" else "d"
+                        # dump value
+                        tag = codectx.new_tag()
+                        codectx.add_data_item(tag,asmType,asmVal,False)
+                        # load via xmm0
+                        codectx.function_put_code(f"movs{suffix} {tag}(%rip), %xmm0 # {self.name} = {aVal}")
+                        codectx.function_put_code(f"movs{suffix} %xmm0, {self.name}(%rip)")
+                    else:
+                        if asmType == "quad":
+                            codectx.function_put_code(f"movq ${asmVal}, {self.name}(%rip) # {self.name} = {aVal}")
+                        else:
+                            print(size)
+                            assert(False and "size not handled")
+                else:
+                    print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
+                    
+        elif kind==1:
+            assert(False)
+        else:
+            assert(False)
+
+        return aType,aReg,aVal
 
 class ASTObjectExpressionNumber(ASTObjectExpression):
     """literal number expression"""
@@ -2405,6 +2522,7 @@ class ASTObjectBase(ASTObject):
     def codegen_globals(self,codectx):
         for name,var in self.varconst.items():
             assert(type(var) == ASTObjectVarConst)
+            codectx.add_global(var.name,var.type,var.isMutable)
             if var.expression is not None:
                 eType,eReg,eVal = var.expression.codegen_expression(codectx,needImmediate=True)
                 assert(eReg == False)
@@ -2418,22 +2536,46 @@ class ASTObjectBase(ASTObject):
 
                 # now can assume newVal has type var.type
                 if var.type.isNumber():
-                    size = ASTObjectTypeNumber_types[var.type.name]
-                    asmType = ASM_size_to_type[size]
-
-                    # floating point number handling:
-                    if var.type.name == "float":
-                        newVal = newVal.view(np.uint32)
-                    if var.type.name == "double":
-                        newVal = newVal.view(np.uint64)
-
+                    asmType,newVal = number_to_integer_view(var.type.name,newVal)
+                    codectx.del_name(var.name) # name hack to have global + value for global
                     codectx.add_data_item(var.name,asmType,newVal,True)
                 else:
                     print(f"Not implemented {var.type.toStr()} global assignment.")
             
 
-    def codegen_functions(self,ccodectx):
-        pass # TODO
+    def codegen_functions(self,codectx):
+        for name,func in self.functions.items():
+            print(name,func)
+            print("ret",func.return_type)
+            print("arg",func.arguments)
+
+            # 1 open function
+            codectx.function_open(name)
+            
+            # 2 put arg into local variables
+            #codectx.function_alloc_var_from_reg("a","rdi")
+            #codectx.function_alloc_var_from_reg("b","rsi")
+            #codectx.function_alloc_var_from_reg("c","rdx")
+        
+            # 3 body
+            #codectx.function_var_to_reg("c","rax")
+            #codectx.function_var_to_reg("b","rcx")
+            #codectx.function_var_to_reg("a","rdx")
+            #codectx.function_put_code("addl %ecx, %eax")
+            #codectx.function_put_code("addl %edx, %eax")
+
+            ##codectx.function_var_to_reg("a","rax") # return
+            
+            #codectx.function_dealloc_var("c")
+            #codectx.function_dealloc_var("b")
+            #codectx.function_dealloc_var("a")
+            
+            for exp in func.body:
+                eType,eReg,eVal = exp.codegen_expression(codectx,needImmediate=False)
+
+            # 4 close function
+            codectx.function_close()
+
 
 class PTParser():
     """Take parse tree pt, produce ast of AST objects
