@@ -9,3 +9,8 @@ var u32 num3 = 1000000;
 var u64 num4 = 1000000000000;
 var i32 num5 = -1000;
 var u64 num6 = -1;
+
+var double num7 = 1010101.1010101;
+var float num8 = 1.1;
+var float num9 = 1111;
+//var u64 num10 = 111.111;

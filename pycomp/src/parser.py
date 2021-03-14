@@ -1307,6 +1307,13 @@ class ASTObjectTypeNumber(ASTObjectType):
         if otype.equals(self): # only allow if same type
             return oval
         if otype.isNumber():
+            isFloat = np.floor(oval) != oval
+            toInteger = self.name not in ["double","float"]
+
+            if isFloat and toInteger:
+                print(f"Warning: cannot softCastImmediate {otype.name} value {oval} to integer type {self.name}.")
+                return None
+                
             if self.name == "u8":
                 return np.uint8(oval)
             elif self.name == "u16":
@@ -1323,6 +1330,10 @@ class ASTObjectTypeNumber(ASTObjectType):
                 return np.int32(oval)
             elif self.name == "i64":
                 return np.int64(oval)
+            elif self.name == "double":
+                return np.double(oval)
+            elif self.name == "float":
+                return np.single(oval)
             else:
                 print(f"Warning: cannot softCastImmediate {self.toStr()} to {otype.toStr()}")
                 return None
@@ -2050,7 +2061,11 @@ class ASTObjectExpressionNumber(ASTObjectExpression):
     def codegen_expression(self,codectx,needImmediate):
         """See super for desc"""
         # TODO: add multiple number types
-        return ASTObjectTypeNumber(None,"u64"), False, np.uint64(self.number)
+        if "." in self.number:
+            return ASTObjectTypeNumber(None,"double"), False, np.double(self.number)
+        
+        else:
+            return ASTObjectTypeNumber(None,"u64"), False, np.uint64(self.number)
 
 class ASTObjectExpressionString(ASTObjectExpression):
     """literal string expression"""
@@ -2405,6 +2420,13 @@ class ASTObjectBase(ASTObject):
                 if var.type.isNumber():
                     size = ASTObjectTypeNumber_types[var.type.name]
                     asmType = ASM_size_to_type[size]
+
+                    # floating point number handling:
+                    if var.type.name == "float":
+                        newVal = newVal.view(np.uint32)
+                    if var.type.name == "double":
+                        newVal = newVal.view(np.uint64)
+
                     codectx.add_data_item(var.name,asmType,newVal,True)
                 else:
                     print(f"Not implemented {var.type.toStr()} global assignment.")
