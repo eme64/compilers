@@ -1517,12 +1517,12 @@ class ASTObjectTypeNumber(ASTObjectType):
         asmType,asmVal = number_to_integer_view(self.name,val)
         # write imm to register
         if self.name in ASTObjectTypeNumber_types_float:
-            suffix = "s" if aType.name == "float" else "d"
+            suffix = "s" if self.name == "float" else "d"
             # dump value
             tag = codectx.new_tag()
             codectx.add_data_item(tag,asmType,asmVal,False)
             # load to xmm0
-            codectx.function_put_code(f"movs{suffix} {tag}(%rip), %xmm0 # %{floatReg} = {rVal}")
+            codectx.function_put_code(f"movs{suffix} {tag}(%rip), %xmm0 # %{floatReg} = {val}")
         else:
             letter = ASM_type_to_letter[asmType]
             reg = regDict[asmType]
@@ -2203,6 +2203,7 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                     suffix = "s" if t.name == "float" else "d"
                     
 
+                    assert(self.operator == "+")
                     codectx.function_put_code(f"adds{suffix} %xmm1, %xmm0 # %xmm0 = tmp + %xmm0")
                     return t,True,None
                 else:
@@ -2214,6 +2215,7 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                     rcx = ASM_type_to_rcx[asmType]
                     
                     # TODO: handle other ops
+                    assert(self.operator == "+")
                     codectx.function_put_code(f"add{letter} %{rcx}, %{rax} # %{rax} = tmp + %{rax}")
                     return t,True,None
             else:
@@ -2225,10 +2227,7 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
 
         print(lType,lReg,lVal)
         print(rType,rReg,rVal)
-        assert(False and "continue here")
-
-        return aType,aReg,aVal # forward what was written
-
+        assert(False and "should never arrive here!")
 
 class ASTObjectExpressionUnaryOp(ASTObjectExpression):
     """unary operator of any kind

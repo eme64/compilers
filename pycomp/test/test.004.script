@@ -67,6 +67,8 @@ function void func3() {
 
 	num9 = (1.1+2.2) * (1.1-2.2) / (1.0 - 0.5);
 	num7 = 5 * 6;
+	num7 = num7 + 0.5;
+	//num7 = num7 * 0.5;
 };
 function void func4() {};
 function void func5() {};
