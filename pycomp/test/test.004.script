@@ -11,6 +11,12 @@ var i32 num5 = -1000;
 var u64 num6 = -1;
 //var u64 num6_ = num6;
 
+var i8  num001 = 0;
+var i16 num002 = 0;
+var i32 num003 = 0;
+var i64 num004 = 0;
+var u64 num005 = 0;
+
 var double num7 = 1010101.1010101;
 var float num8 = 1.1;
 var float num9 = 1111;
@@ -40,6 +46,17 @@ function void func2() {
 	num7 = num7 + num7;
 	num8 = num8 + num8;
 	num9 = num9 + num9;
-	//num6 = num6 + 8;
-	//num6 = -8 + num6;
-}
+};
+
+function void func3() {
+	num1 = num1 + num1 + num1;
+	num2 = num2 + 2;
+	num2 = 2 + num2 + 2;
+	num3 = num1;
+
+	num001 = -1;
+	num005 = num001;
+	num6 = num005;
+};
+function void func4() {};
+function void func5() {};

@@ -1359,6 +1359,18 @@ ASTObjectTypeNumber_types_to_signed = {
         "u8":"i8",
         }# numbers are size in bytes
 
+def number_type_signed(typeName):
+    """return boolean, True if signed"""
+    sngd = ASTObjectTypeNumber_types_to_signed[typeName]
+    return sngd == typeName
+
+def number_type_to_letter(typeName):
+    """returns letter used for move/etc"""
+    size = ASTObjectTypeNumber_types[typeName]
+    asmType = ASM_size_to_type[size]
+    letter = ASM_type_to_letter[asmType]
+    return letter
+
 def number_to_integer_view(typeName,value):
     """from typeName (eg float, i32, ...) to quad ..."""
     size = ASTObjectTypeNumber_types[typeName]
@@ -1455,6 +1467,69 @@ class ASTObjectTypeNumber(ASTObjectType):
         if ctype is None:
             print(f"Warning: cannot signedCastImmediate {self.toStr()}")
         return ctype,cval
+
+    def softCastRegister(self,codectx,oType,regDict,doubleReg):
+        """cast register value.
+        if type is integer, then use regDict, asmType -> register name.
+        if floating: xmm register name in doubeReg
+        Return True or False (success?)
+        """
+
+        sFloat = self.name in ASTObjectTypeNumber_types_float
+        oFloat = oType.name in ASTObjectTypeNumber_types_float
+        
+        if sFloat and oFloat:
+            # float to float
+            assert(False and "float to float")
+        elif not sFloat and oFloat:
+            # float to int
+            assert(False and "float to int")
+        elif sFloat and not oFloat:
+            # int to float
+            assert(False and "int to float")
+        else:
+            # int to int
+            sl = number_type_to_letter(self.name)
+            ol = number_type_to_letter(oType.name)
+            ssize = ASTObjectTypeNumber_types[self.name]
+            osize = ASTObjectTypeNumber_types[oType.name]
+            sasmType = ASM_size_to_type[ssize]
+            oasmType = ASM_size_to_type[osize]
+            sreg = regDict[sasmType]
+            oreg = regDict[oasmType]
+
+            sng = "s" if number_type_signed(oType.name) else "z"
+            if osize > ssize:
+                # ignore cast
+                codectx.function_put_code(f"# nop # cast %{regDict['quad']} from {oType.toStr()} to {self.toStr()}")
+                return True
+            
+            else:
+                codectx.function_put_code(f"mov{sng}{ol}{sl} %{oreg}, %{sreg} # cast %{regDict['quad']} from {oType.toStr()} to {self.toStr()}")
+                return True
+            
+    def immToReg(self,codectx,val,regDict,floatReg):
+        """write imm value to register.
+        if type is integer, then use regDict, asmType -> register name.
+        if floating: xmm register name in floatReg
+        Return True or False (success?)
+        """
+        asmType,asmVal = number_to_integer_view(self.name,val)
+        # write imm to register
+        if self.name in ASTObjectTypeNumber_types_float:
+            suffix = "s" if aType.name == "float" else "d"
+            # dump value
+            tag = codectx.new_tag()
+            codectx.add_data_item(tag,asmType,asmVal,False)
+            # load to xmm0
+            codectx.function_put_code(f"movs{suffix} {tag}(%rip), %xmm0 # %{floatReg} = {rVal}")
+        else:
+            letter = ASM_type_to_letter[asmType]
+            reg = regDict[asmType]
+            codectx.function_put_code(f"mov{letter} ${asmVal}, %{reg} # %{regDict['quad']} = {val}")
+
+        return True
+
 
 class ASTObjectTypeStruct(ASTObjectType):
     """
@@ -2035,44 +2110,62 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
 
         if lType.isNumber() and rType.isNumber():
             t = number_type_max(lType,rType)
+            
+            if (not lReg) and (not rReg):
+                assert(False and "BinOp imm")
+            
+            if not rReg:
+                # imm to rax / xmm0
+                rType.immToReg(codectx,rVal,ASM_type_to_rax,"xmm0")
+                rReg = True
 
-            if lReg:
-                if rReg:
-                    # move lhs to rcx 
+            if rReg:
+                # move lhs to rcx 
+                if lReg:
                     if lType.isNumber() and lType.name in ASTObjectTypeNumber_types_float:
                         codectx.function_var_to_reg(tmp,"xmm1")
                     else:
                         codectx.function_var_to_reg(tmp,"rcx")
                     
                     codectx.function_dealloc_var(tmp)
-                    
-                    # convert if needed:
-                    if not t.equals(lType):
-                        assert(False)
-                    if not t.equals(rType):
-                        assert(False)
-
-                    if t.name in ASTObjectTypeNumber_types_float:
-                        suffix = "s" if t.name == "float" else "d"
-                        
-
-                        codectx.function_put_code(f"adds{suffix} %xmm1, %xmm0 # %xmm0 = tmp + %xmm0")
-                        return t,True,None
-                    else:
-                        # perform rax = rax OP rcx in dtype t
-                        size = ASTObjectTypeNumber_types[t.name]
-                        asmType = ASM_size_to_type[size]
-                        letter = ASM_type_to_letter[asmType]
-                        rax = ASM_type_to_rax[asmType]
-                        rcx = ASM_type_to_rcx[asmType]
-                        
-                        # TODO: handle other ops
-                        codectx.function_put_code(f"add{letter} %{rcx}, %{rax} # %{rax} = tmp + %{rax}")
-                        return t,True,None
                 else:
-                    assert(False)
+                    # imm to rcx / xmm1
+                    lType.immToReg(codectx,lVal,ASM_type_to_rcx,"xmm1")
+                    lReg = True
+
+                # convert if needed:
+                if not t.equals(lType):
+                    success = t.softCastRegister(codectx, lType, ASM_type_to_rcx, "xmm1")
+                    if not success:
+                        print(f"TypeError: could not convert {lType.toStr()} to {t.toStr()} of left-hand-side operand.")
+                        self.token().mark()
+                        quit()
+                if not t.equals(rType):
+                    success = t.softCastRegister(codectx, rType, ASM_type_to_rax, "xmm0")
+                    if not success:
+                        print(f"TypeError: could not convert {lType.toStr()} to {t.toStr()} of right-hand-side operand.")
+                        self.token().mark()
+                        quit()
+
+                if t.name in ASTObjectTypeNumber_types_float:
+                    suffix = "s" if t.name == "float" else "d"
+                    
+
+                    codectx.function_put_code(f"adds{suffix} %xmm1, %xmm0 # %xmm0 = tmp + %xmm0")
+                    return t,True,None
+                else:
+                    # perform rax = rax OP rcx in dtype t
+                    size = ASTObjectTypeNumber_types[t.name]
+                    asmType = ASM_size_to_type[size]
+                    letter = ASM_type_to_letter[asmType]
+                    rax = ASM_type_to_rax[asmType]
+                    rcx = ASM_type_to_rcx[asmType]
+                    
+                    # TODO: handle other ops
+                    codectx.function_put_code(f"add{letter} %{rcx}, %{rax} # %{rax} = tmp + %{rax}")
+                    return t,True,None
             else:
-                assert(False)
+                assert(False and "lReg, rImm - is handled!")
         else:
             print(f"error: not both sides numbers {lType.toStr()} and {rType.toStr()}")
             self.token().mark()
@@ -2291,7 +2384,7 @@ class ASTObjectExpressionName(ASTObjectExpression):
             self.token().mark()
             quit()
 
-        # check type conversions
+        # check type conversions imm
         if (not aReg) and (not aType.equals(vType)):
             if aType.isNumber() and vType.isNumber():
                 # immediate: number to number
@@ -2299,7 +2392,20 @@ class ASTObjectExpressionName(ASTObjectExpression):
                 if not newVal is None:
                     aType = vType
                     aVal = newVal
-        
+
+        # check type conversion reg
+        if aReg and (not aType.equals(vType)):
+            if aType.isNumber() and vType.isNumber():
+                # reg: number to number
+                success = vType.softCastRegister(codectx, aType, ASM_type_to_rax, "xmm0")
+                if not success:
+                    print(f"TypeError: could not convert {aType.toStr()} to {vType.toStr()} for assignment.")
+                    self.token().mark()
+                    quit()
+                # adjust aType:
+                aType = vType
+                    
+       
         # if no method of changing it works:
         if not aType.equals(vType):
             print(f"TypeError: cannot assign '{aType.toStr()}' to '{vType.toStr()}'.")
