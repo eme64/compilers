@@ -1038,6 +1038,7 @@ def ptparse_expression_operator(pt):
             return ptparse_expression_operator(pt_rtl)
         
         assert(len(listoflists)==2)
+        print(listoflists)
         if(len(listoflists[0])==0 and len(listoflists[1])==0):
             # pure operator
             print("SyntaxError: cannot have operator without operands.")
@@ -2112,7 +2113,26 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
             t = number_type_max(lType,rType)
             
             if (not lReg) and (not rReg):
-                assert(False and "BinOp imm")
+                # convert if needed:
+                if not t.equals(lType):
+                    lVal = t.softCastImmediate(lType,lVal)
+                    if lVal is None:
+                        print(f"TypeError: could not convert {lType.toStr()} to {t.toStr()} for left-hand-side of operator.")
+                        self.token().mark()
+                        quit()
+                if not t.equals(rType):
+                    rVal = t.softCastImmediate(rType,rVal)
+                    if rVal is None:
+                        print(f"TypeError: could not convert {rType.toStr()} to {t.toStr()} for right-hand-side of operator.")
+                        self.token().mark()
+                        quit()
+
+                if self.operator == "+":
+                    res = lVal + rVal
+                    return t,False,res
+                else:
+                    self.token().mark()
+                    assert(False and "BinOp imm not implemented")
             
             if not rReg:
                 # imm to rax / xmm0

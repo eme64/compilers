@@ -54,6 +54,8 @@ function void func3() {
 	num2 = 2 + num2 + 2;
 	num3 = num1;
 
+	num4 = 5 + (-10);
+
 	num001 = -1;
 	num005 = num001;
 	num6 = num005;

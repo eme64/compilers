@@ -61,7 +61,9 @@ class Token:
             self.parent.mark()
         print(f"in {self.lex.filename}:{self.line}")
         print(self.lex.lines[self.line][:-1])
-        print(" "*self.start+"^")
+        prefix = self.lex.lines[self.line][:self.start]
+        prefix = "".join([("\t" if c=="\t" else " ") for c in prefix])
+        print(prefix+"^")
 
 class Lexer:
     """FSM based lexer
