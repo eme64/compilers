@@ -1038,7 +1038,6 @@ def ptparse_expression_operator(pt):
             return ptparse_expression_operator(pt_rtl)
         
         assert(len(listoflists)==2)
-        print(listoflists)
         if(len(listoflists[0])==0 and len(listoflists[1])==0):
             # pure operator
             print("SyntaxError: cannot have operator without operands.")
@@ -2126,13 +2125,46 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                         print(f"TypeError: could not convert {rType.toStr()} to {t.toStr()} for right-hand-side of operator.")
                         self.token().mark()
                         quit()
-
-                if self.operator == "+":
-                    res = lVal + rVal
-                    return t,False,res
-                else:
-                    self.token().mark()
-                    assert(False and "BinOp imm not implemented")
+                
+                
+                def immCompGo():
+                    if self.operator == "+":
+                        res = lVal + rVal
+                        return t,False,res
+                    elif self.operator == "-":
+                        res = lVal - rVal
+                        return t,False,res
+                    elif self.operator == "*":
+                        res = lVal * rVal
+                        return t,False,res
+                    elif self.operator == "/":
+                        if rVal == 0:
+                            print("Error: cannot divide by zero!")
+                            self.token().mark()
+                            quit()
+                        res = None
+                        if t.name in ASTObjectTypeNumber_types_float:
+                            res = lVal / rVal
+                        else:
+                            res = lVal // rVal
+                        return t,False,res
+                    else:
+                        self.token().mark()
+                        assert(False and "BinOp imm not implemented")
+                np.seterr(all="raise")
+                error = ""
+                try:
+                    return immCompGo()
+                except FloatingPointError as e:
+                    error = e
+                
+                np.seterr(all="ignore")
+                t,_,res = immCompGo()
+                print(f"Warning: unexpected computation in immediate values: {error}")
+                print(f"{lVal} {self.operator} {rVal} = {res}")
+                self.token().mark()
+                np.seterr(all="warn")
+                return t,False,res
             
             if not rReg:
                 # imm to rax / xmm0
