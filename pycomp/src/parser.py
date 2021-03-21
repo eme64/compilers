@@ -486,7 +486,14 @@ class CodeCTXFunction:
         # we assume it is always 8-aligned (only use pushq/popq)
 
         self.nametooffset = {} # var name -> diff to bp
+        self.nametosize = {}   # var name -> size in bytes
+        self.nametotype = {}   # var name -> variable type
+        self.nametomutable = {}# var name -> mutable?
         self.namestack = deque() # deque to verify var alloc/dealloc
+        
+        # scopes: stack of list of local variables
+        self.scopes = deque()
+        self.scopes.append([]) # outermost scope
 
         # code dump
         self.code = [] # lines of asm code
@@ -497,13 +504,19 @@ class CodeCTXFunction:
             print("CodeError: variable collision '{name}'")
             assert(False)
 
-    def alloc_var_from_reg(self, vname, reg):
+    def alloc_var_from_reg(self, vname, reg, vtype, vmutable):
         """Allocates variable location on stack, put value from reg in it."""
         self.check_name(vname)
         self.bp_diff += 8
         self.nametooffset[vname] = self.bp_diff
+        self.nametosize[vname] = 8
+        self.nametotype[vname] = vtype
+        self.nametomutable[vname] = vmutable
         self.namestack.append(vname)
         
+        # add var name to scope
+        self.scopes[-1].append(vname)
+
         if reg.startswith("xmm"):
             self.code.append(f"{self.indent}addq $-8,%rsp # var {vname} alloc")
 
@@ -511,11 +524,31 @@ class CodeCTXFunction:
         else:
             self.code.append(f"{self.indent}pushq %{reg} # var {vname}=%{reg}")
 
+    def alloc_var_with_type(self,vname, vtype, vmutable):
+        """Allocate variable on stack with size bytes"""
+        size = (vtype.sizeof()+7)//8 * 8
+        self.check_name(vname)
+        self.bp_diff += size
+        self.nametooffset[vname] = self.bp_diff
+        self.nametosize[vname] = size
+        self.nametotype[vname] = vtype
+        self.nametomutable[vname] = vmutable
+        self.namestack.append(vname)
+        
+        # add var name to scope
+        self.scopes[-1].append(vname)
+        
+        self.code.append(f"{self.indent}addq $-{size},%rsp # var {vname} alloc")
+
     def dealloc_var(self,vname):
         assert(self.namestack.pop() == vname)
-        self.bp_diff-=8
+        self.bp_diff-=self.nametosize[vname]
         del self.nametooffset[vname]
-        self.code.append(f"{self.indent}addq $8,%rsp # ~var {vname}")
+        size = self.nametosize[vname]
+        del self.nametosize[vname]
+        del self.nametotype[vname]
+        del self.nametomutable[vname]
+        self.code.append(f"{self.indent}addq ${size},%rsp # ~var {vname}")
     def var_to_reg(self,vname,reg):
         """write variable value to reg"""
         assert(vname in self.nametooffset)
@@ -540,8 +573,29 @@ class CodeCTXFunction:
         And make sure to stick to cdecl convention
         """
         self.code.append(f"{self.indent}{line}")
+    
+    def open_scope(self):
+        self.scopes.append([])
+
+    def close_scope(self):
+        if len(self.scopes)<2:
+            print(self.scopes)
+            assert(False and "less than two scopes are left, cannot close one now")
+        # deallocate last scope of variables
+        for vname in reversed(self.scopes[-1]):
+            self.dealloc_var(vname)
+        self.scopes.pop()
 
     def check_close(self):
+        # release last scope
+        if len(self.scopes)!=1:
+            print(self.scopes)
+            assert(False and "self.scopes does not have exactly one scope left for function to close")
+        
+        # deallocate last scope of variables
+        for vname in reversed(self.scopes[0]):
+            self.dealloc_var(vname)
+        
         assert(self.bp_diff == 0)
         assert(len(self.nametooffset)==0)
         assert(len(self.namestack)==0)
@@ -611,12 +665,12 @@ class CodeCTX:
         self.functions[self.function_cur.name] = self.function_cur
         self.function_cur = None
     
-    def function_alloc_var_from_reg(self,vname,reg):
+    def function_alloc_var_with_type(self,vname,vtype,vmutable):
         assert(not self.function_cur is None)
-        self.function_cur.alloc_var_from_reg(vname,reg)
-    def function_dealloc_var(self,vname):
+        self.function_cur.alloc_var_with_type(vname,vtype,vmutable)
+    def function_alloc_var_from_reg(self,vname,reg,vtype,vmutable):
         assert(not self.function_cur is None)
-        self.function_cur.dealloc_var(vname)
+        self.function_cur.alloc_var_from_reg(vname,reg,vtype,vmutable)
     def function_var_to_reg(self,vname,reg):
         assert(not self.function_cur is None)
         self.function_cur.var_to_reg(vname,reg)
@@ -631,7 +685,13 @@ class CodeCTX:
         """get variable access string"""
         assert(not self.function_cur is None)
         return self.function_cur.var_access_str(vname)
-
+    
+    def function_open_scope(self):
+        assert(not self.function_cur is None)
+        self.function_cur.open_scope(vname)
+    def function_close_scope(self):
+        assert(not self.function_cur is None)
+        self.function_cur.close_scope(vname)
 
     def function_get_name(self,name):
         """Get info about the name
@@ -644,7 +704,8 @@ class CodeCTX:
         # check if local:
         assert(not self.function_cur is None)
         if name in self.function_cur.nametooffset:
-            assert(False and "local variable get not implemented")
+            f = self.function_cur
+            return 1,f.nametotype[name],f.nametomutable[name]
         elif name in self.globals:
             gType,isMutable = self.globals[name]
             return 0,gType,isMutable
@@ -1235,6 +1296,10 @@ class ASTObjectType(ASTObject):
     def toStr(self):
         print(self)
         assert(False and "not implemented")
+    
+    def sizeof(self):
+        print(self)
+        assert(False and "not implemented")
 
     def softCastImmediate(self,otype,oval):
         if otype.equals(self): # only allow if same type
@@ -1266,6 +1331,8 @@ class ASTObjectTypeVoid(ASTObjectType):
         return type(self)==type(other)
     def toStr(self):
         return "void"
+    def sizeof(self):
+        return 0
 
 class ASTObjectTypePointer(ASTObjectType):
     """
@@ -1310,6 +1377,8 @@ class ASTObjectTypePointer(ASTObjectType):
 
     def toStr(self):
         return f"*{self.type.toStr}"
+    def sizeof(self):
+        return 8
 
 ASTObjectTypeNumber_types = {
         "i64":8,
@@ -1419,6 +1488,8 @@ class ASTObjectTypeNumber(ASTObjectType):
  
     def toStr(self):
         return self.name
+    def sizeof(self):
+        return ASTObjectTypeNumber_types[self.name]
 
     def softCastImmediate(self,otype,oval):
         if otype.equals(self): # only allow if same type
@@ -2143,9 +2214,9 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
             # send to local variable
             tmp = codectx.new_temp()
             if lType.isNumber() and lType.name in ASTObjectTypeNumber_types_float:
-                codectx.function_alloc_var_from_reg(tmp,"xmm0")
+                codectx.function_alloc_var_from_reg(tmp,"xmm0",lType,False)
             else:
-                codectx.function_alloc_var_from_reg(tmp,"rax")
+                codectx.function_alloc_var_from_reg(tmp,"rax",lType,False)
 
         rType,rReg,rVal = self.rhs.codegen_expression(codectx,needImmediate)
 
@@ -2227,7 +2298,6 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                     else:
                         codectx.function_var_to_reg(tmp,"rax")
                     
-                    codectx.function_dealloc_var(tmp)
                 else:
                     # imm to rax / xmm0
                     lType.immToReg(codectx,lVal,ASM_type_to_rax,"xmm0")
@@ -2413,15 +2483,57 @@ class ASTObjectExpressionDeclaration(ASTObjectExpression):
         print(" "*depth + f"type:")
         self.type.print_ast(depth = depth+step)
 
+    def codegen_expression(self,codectx,needImmediate):
+        """check super for desc
+        if needImmediate is set, this will fail.
+        does not return anything.
+        """
+        if needImmediate:
+            print(f"error: variable declaration cannot be used as static value (is not immediate value).")
+            self.token().mark()
+            quit()
+        
+        # check if name already exists
+        ret = codectx.function_get_name(self.name)
+        if not (ret is None):
+            print(f"error: '{self.name}' duplicate declaration.")
+            self.token().mark()
+            quit()
+
+        # allocate variable
+        if self.type.isNumber():
+            codectx.function_alloc_var_with_type(self.name,self.type, self.isMutable)
+        else:
+            print(self.type.toStr())
+            self.token().mark()
+            assert(False and "local var decl not implemented for non number types")
+
+        return ASTObjectTypeVoid(None,token=self.token()),True,None
+
+    def codegen_assign(self,codectx,needImmediate,aType,aReg,aVal):
+        """check super for desc"""
+        # allocate via expression:
+        eType,eReg,eVal = self.codegen_expression(codectx,needImmediate)
+
+        # new assign to the variable
+        astname = ASTObjectExpressionName(None,self.name,self.token())
+        return astname.codegen_assign(codectx, needImmediate, aType,aReg,aVal)
+
+ 
 class ASTObjectExpressionName(ASTObjectExpression):
     """const/variable name"""
-    def __init__(self,pt):
-        isToken, payload = pt
-        assert(isToken)
-        tk = payload
-        assert(tk.name == "name")
-        self.name = tk.value
-        self.token_ = tk
+    def __init__(self,pt, _name = None, _token = None):
+        """either init via pt, or set _name and _token"""
+        if _name is None:
+            isToken, payload = pt
+            assert(isToken)
+            tk = payload
+            assert(tk.name == "name")
+            self.name = tk.value
+            self.token_ = tk
+        else:
+            self.name = _name
+            self.token_ = _token
 
     def isReadable(self):
         return True
@@ -2451,7 +2563,13 @@ class ASTObjectExpressionName(ASTObjectExpression):
         
         kind,vType,isMutable = ret
 
-        if kind == 0:# global
+        if kind == 0 or kind == 1:# global or local
+            memloc = ""
+            if kind == 0:
+                memloc = f"{self.name}(%rip)"
+            else:
+                memloc = codectx.function_var_access_str(self.name)
+            
             if vType.isNumber():
                 size = ASTObjectTypeNumber_types[vType.name]
                 asmType = ASM_size_to_type[size]
@@ -2459,23 +2577,19 @@ class ASTObjectExpressionName(ASTObjectExpression):
                     suffix = "s" if vType.name == "float" else "d"
                     
                     ## load to xmm0
-                    codectx.function_put_code(f"movs{suffix} {self.name}(%rip), %xmm0 # %xmm0 = {self.name}")
+                    codectx.function_put_code(f"movs{suffix} {memloc}, %xmm0 # %xmm0 = {self.name}")
                     return vType,True,None
                 else:
                     letter = ASM_type_to_letter[asmType]
                     rax = ASM_type_to_rax[asmType]
-                    codectx.function_put_code(f"mov{letter} {self.name}(%rip), %{rax} # %rax = {self.name}")
+                    codectx.function_put_code(f"mov{letter} {memloc}, %{rax} # %rax = {self.name}")
                     return vType,True,None
             else:
                 print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
                 
-        elif kind==1:
-            assert(False)
         else:
-            assert(False)
+            assert(False and "should never end here")
 
-       
-        
     
     def codegen_assign(self,codectx,needImmediate,aType,aReg,aVal):
         """check super for desc"""
@@ -2523,25 +2637,31 @@ class ASTObjectExpressionName(ASTObjectExpression):
             self.token().mark()
             quit()
 
-        if kind == 0:# global
+        if kind == 0 or kind == 1:# global or local
+            memloc = ""
+            if kind == 0:
+                memloc = f"{self.name}(%rip)"
+            else:
+                memloc = codectx.function_var_access_str(self.name)
+
             if aReg:
                 if aType.isNumber():
                     if aType.name in ASTObjectTypeNumber_types_float:
                         suffix = "s" if aType.name == "float" else "d"
                         ## load from xmm0
-                        codectx.function_put_code(f"movs{suffix} %xmm0, {self.name}(%rip) # {self.name} = %xmm0")
+                        codectx.function_put_code(f"movs{suffix} %xmm0, {memloc} # {self.name} = %xmm0")
                     else:
                         size = ASTObjectTypeNumber_types[aType.name]
                         asmType = ASM_size_to_type[size]
                         letter = ASM_type_to_letter[asmType]
                         rax = ASM_type_to_rax[asmType]
-                        codectx.function_put_code(f"mov{letter} %{rax}, {self.name}(%rip) # {self.name} = %{rax}")
+                        codectx.function_put_code(f"mov{letter} %{rax}, {memloc} # {self.name} = %{rax}")
                         
                 else:
                     print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
                     assert(False)
             else:
-                # immediate to global
+                # immediate to var
 
                 asmType,asmVal = number_to_integer_view(aType.name,aVal)
                 if aType.isNumber():
@@ -2552,18 +2672,16 @@ class ASTObjectExpressionName(ASTObjectExpression):
                         codectx.add_data_item(tag,asmType,asmVal,False)
                         # load via xmm0
                         codectx.function_put_code(f"movs{suffix} {tag}(%rip), %xmm0 # {self.name} = {aVal}")
-                        codectx.function_put_code(f"movs{suffix} %xmm0, {self.name}(%rip)")
+                        codectx.function_put_code(f"movs{suffix} %xmm0, {memloc}")
                     else:
                         letter = ASM_type_to_letter[asmType]
-                        codectx.function_put_code(f"mov{letter} ${asmVal}, {self.name}(%rip) # {self.name} = {aVal}")
+                        codectx.function_put_code(f"mov{letter} ${asmVal}, {memloc} # {self.name} = {aVal}")
                 else:
                     print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
                     assert(False)
                     
-        elif kind==1:
-            assert(False)
         else:
-            assert(False)
+            assert(False and "should never end here")
 
         return aType,aReg,aVal
 
@@ -2907,9 +3025,6 @@ class ASTObjectBase(ASTObject):
 
         ##codectx.function_reg_to_var("a","rdi")
         ##codectx.function_var_to_reg("a","rax") # return
-        #codectx.function_dealloc_var("c")
-        #codectx.function_dealloc_var("b")
-        #codectx.function_dealloc_var("a")
         #codectx.function_close()
         #
         #codectx.function_open("func2")
@@ -2979,9 +3094,6 @@ class ASTObjectBase(ASTObject):
 
             ##codectx.function_var_to_reg("a","rax") # return
             
-            #codectx.function_dealloc_var("c")
-            #codectx.function_dealloc_var("b")
-            #codectx.function_dealloc_var("a")
             
             codectx.function_put_code("")
             for exp in func.body:

@@ -123,3 +123,15 @@ function void func_cast_3() {
 	var003 = var003;
 };
 
+
+function void test_local() {
+	var i32 l0 = var i32 l2 = 200;
+	var i32 l1;
+	l1 = 200;
+	num1 = l1;
+	num2 = l1;
+	num3 = l1;
+	num4 = l1;
+	num5 = l1;
+	num6 = l1;
+};

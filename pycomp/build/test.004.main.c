@@ -18,6 +18,7 @@ extern void func_cast_0();
 extern void func_cast_1();
 extern void func_cast_2();
 extern void func_cast_3();
+extern void test_local();
 
 extern uint64_t var000;
 extern int64_t var001;
@@ -53,6 +54,11 @@ int main(){
 	var003 = 12345.678;
 	func_cast_3();
 	printf("vars: %ld, %lu, %f, %lf\n",var000,var001,var002,var003);
+	
+	printf("\n");
+	printf("test_local, %d, %d, %d, %ld, %d, %ld\n",num1,num2,num3,num4,num5,num6);
+	test_local();
+	printf("test_local, %d, %d, %d, %ld, %d, %ld\n",num1,num2,num3,num4,num5,num6);
 }
 
 
