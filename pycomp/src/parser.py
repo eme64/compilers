@@ -1479,12 +1479,15 @@ class ASTObjectTypeNumber(ASTObjectType):
         oFloat = oType.name in ASTObjectTypeNumber_types_float
         
         if sFloat and oFloat:
+            # TODO
             # float to float
             assert(False and "float to float")
         elif not sFloat and oFloat:
+            # TODO
             # float to int
             assert(False and "float to int")
         elif sFloat and not oFloat:
+            # TODO
             # int to float
             assert(False and "int to float")
         else:
@@ -2041,6 +2044,14 @@ class ASTObjectExpressionFunctionCall(ASTObjectExpression):
 ASTObjectExpressionBinOp_rtl_operators = [
         "+","-","*","/","%",
         ]
+
+ASM_bin_ops = {
+        "+":"add",
+        "-":"sub",
+        "*":"mul",
+        "/":"div",
+        }
+
 ASTObjectExpressionBinOp_rtl_operators_also_right_unary = [
         "-","*",
         ]
@@ -2172,39 +2183,50 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                 rReg = True
 
             if rReg:
-                # move lhs to rcx 
+                # move right arg rax/xmm0 -> rcx/xmm1
+                if lType.isNumber() and rType.name in ASTObjectTypeNumber_types_float:
+                    suffix = "s" if t.name == "float" else "d"
+                    codectx.function_put_code(f"movs{suffix} %xmm0, %xmm1 # %xmm1 = %xmm0")
+                else:
+                    codectx.function_put_code(f"movq %rax, %rcx # %rcx = %rax")
+                
+                # move lhs to rax/xmm0
                 if lReg:
                     if lType.isNumber() and lType.name in ASTObjectTypeNumber_types_float:
-                        codectx.function_var_to_reg(tmp,"xmm1")
+                        codectx.function_var_to_reg(tmp,"xmm0")
                     else:
-                        codectx.function_var_to_reg(tmp,"rcx")
+                        codectx.function_var_to_reg(tmp,"rax")
                     
                     codectx.function_dealloc_var(tmp)
                 else:
-                    # imm to rcx / xmm1
-                    lType.immToReg(codectx,lVal,ASM_type_to_rcx,"xmm1")
+                    # imm to rax / xmm0
+                    lType.immToReg(codectx,lVal,ASM_type_to_rax,"xmm0")
                     lReg = True
 
                 # convert if needed:
                 if not t.equals(lType):
-                    success = t.softCastRegister(codectx, lType, ASM_type_to_rcx, "xmm1")
+                    success = t.softCastRegister(codectx, lType, ASM_type_to_rax, "xmm0")
                     if not success:
                         print(f"TypeError: could not convert {lType.toStr()} to {t.toStr()} of left-hand-side operand.")
                         self.token().mark()
                         quit()
                 if not t.equals(rType):
-                    success = t.softCastRegister(codectx, rType, ASM_type_to_rax, "xmm0")
+                    success = t.softCastRegister(codectx, rType, ASM_type_to_rcx, "xmm1")
                     if not success:
                         print(f"TypeError: could not convert {lType.toStr()} to {t.toStr()} of right-hand-side operand.")
                         self.token().mark()
                         quit()
+                if not self.operator in ASM_bin_ops:
+                    print(f"CodeError: binary operator '{self.operator}' not implemented for floats/doubles.")
+                    self.token().mark()
+                    assert(False and "not implemented")
 
+                asm_op = ASM_bin_ops[self.operator]
+ 
                 if t.name in ASTObjectTypeNumber_types_float:
                     suffix = "s" if t.name == "float" else "d"
                     
-
-                    assert(self.operator == "+")
-                    codectx.function_put_code(f"adds{suffix} %xmm1, %xmm0 # %xmm0 = tmp + %xmm0")
+                    codectx.function_put_code(f"{asm_op}s{suffix} %xmm1, %xmm0 # %xmm0 = %xmm0 {self.operator} %xmm1")
                     return t,True,None
                 else:
                     # perform rax = rax OP rcx in dtype t
@@ -2214,10 +2236,18 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                     rax = ASM_type_to_rax[asmType]
                     rcx = ASM_type_to_rcx[asmType]
                     
-                    # TODO: handle other ops
-                    assert(self.operator == "+")
-                    codectx.function_put_code(f"add{letter} %{rcx}, %{rax} # %{rax} = tmp + %{rax}")
-                    return t,True,None
+
+                    if self.operator in ["*","/"]:
+                        # single argument exceptions
+                        if number_type_signed(t.name):
+                            codectx.function_put_code(f"i{asm_op}{letter} %{rcx} # %rax = %rax {self.operator} %rcx")
+                            return t,True,None
+                        else:
+                            codectx.function_put_code(f"{asm_op}{letter} %{rcx} # %rax = %rax {self.operator} %rcx")
+                            return t,True,None
+                    else:
+                        codectx.function_put_code(f"{asm_op}{letter} %{rcx}, %{rax} # %{rax} = %{rax} {self.operator} %{rcx}")
+                        return t,True,None
             else:
                 assert(False and "lReg, rImm - is handled!")
         else:

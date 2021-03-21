@@ -29,7 +29,24 @@ int main() {
 	num3 = num3 + 100;
 
 	num1 = num1 + 0.5;
+	num1 = num1 - 0.5;
+	num1 = num1 * 0.5;
+	num1 = num1 / 0.5;
 	
+	size_t tmp1 = 5;
+	num3 = num3 + tmp1;
+	num3 = num3 - tmp1;
+	num3 = num3 * tmp1;
+	num3 = num3 / tmp1;
+	
+	unsigned char tmp2 = 5;
+	unsigned char var2 = 5;
+	var2 += tmp2;
+	var2 -= tmp2;
+	var2 *= tmp2;
+	var2 /= tmp2;
+
+
 	num003 = num001 + num002;
 	num004 = num003;
 	num005 = num006;
