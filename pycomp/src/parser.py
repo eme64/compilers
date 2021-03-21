@@ -1479,17 +1479,48 @@ class ASTObjectTypeNumber(ASTObjectType):
         oFloat = oType.name in ASTObjectTypeNumber_types_float
         
         if sFloat and oFloat:
-            # TODO
             # float to float
-            assert(False and "float to float")
+            # cvtss2sd
+            ssuffix = "s" if self.name == "float" else "d"
+            osuffix = "s" if oType.name == "float" else "d"
+            codectx.function_put_code(f"cvts{osuffix}2s{ssuffix} %{doubleReg}, %{doubleReg} # cast: %{doubleReg} from {oType.name} to {self.name}")
+            return True
         elif not sFloat and oFloat:
-            # TODO
             # float to int
-            assert(False and "float to int")
+            # cvttss2si
+            sng = "s" if number_type_signed(self.name) else "z"
+            msize = 8
+            masmType = ASM_size_to_type[msize]
+            mreg = regDict[masmType]
+            ml = ASM_type_to_letter[masmType]
+            
+            suffix = "s" if oType.name == "float" else "d"
+            app = "q" if number_type_signed(self.name) else ""
+            codectx.function_put_code(f"cvtts{suffix}2si{app} %{doubleReg}, %{mreg} # cast: %{doubleReg} = %{mreg}")
+            return True
         elif sFloat and not oFloat:
-            # TODO
             # int to float
-            assert(False and "int to float")
+            # stretch int register to 64 bits
+            sng = "s" if number_type_signed(oType.name) else "z"
+            osize = ASTObjectTypeNumber_types[oType.name]
+            msize = 8
+            oasmType = ASM_size_to_type[osize]
+            masmType = ASM_size_to_type[msize]
+            oreg = regDict[oasmType]
+            mreg = regDict[masmType]
+            ol = ASM_type_to_letter[oasmType]
+            ml = ASM_type_to_letter[masmType]
+            
+            if osize<msize:
+                codectx.function_put_code(f"mov{sng}{ol}{ml} %{oreg}, %{mreg} # cast %{regDict['quad']} from {oType.toStr()} to 64 bits")
+            
+            suffix = "s" if self.name == "float" else "d"
+            if number_type_signed(oType.name):
+                # signed int
+                codectx.function_put_code(f"cvtsi2s{suffix} %{mreg}, %{doubleReg} # cast: %{mreg} = %{doubleReg}")
+                return True
+            else:
+                return False # TODO
         else:
             # int to int
             sl = number_type_to_letter(self.name)
@@ -1502,11 +1533,10 @@ class ASTObjectTypeNumber(ASTObjectType):
             oreg = regDict[oasmType]
 
             sng = "s" if number_type_signed(oType.name) else "z"
-            if osize > ssize:
+            if osize >= ssize:
                 # ignore cast
                 codectx.function_put_code(f"# nop # cast %{regDict['quad']} from {oType.toStr()} to {self.toStr()}")
                 return True
-            
             else:
                 codectx.function_put_code(f"mov{sng}{ol}{sl} %{oreg}, %{sreg} # cast %{regDict['quad']} from {oType.toStr()} to {self.toStr()}")
                 return True

@@ -16,6 +16,8 @@ unsigned int num004 = 10;
 unsigned short num005 = 20;
 signed short num006 = -30;
 
+void help();
+
 int main() {
 	printf("hello\n");
 	num1 = 4.3;
@@ -53,6 +55,32 @@ int main() {
 	num006 = num005;
 
 	num005 = num004;
+	
+	help();
 }
 
+unsigned int h_uint_001 = 100;
+signed   int h_sint_001 = -100;
 
+signed char h_sb_001 = -5;
+
+float  h_f_001 = 5;
+double h_d_001 = -5;
+
+void help() {
+	h_f_001 = h_uint_001;
+	h_d_001 = h_uint_001;
+	h_f_001 = h_sint_001;
+	h_d_001 = h_sint_001;
+	
+	h_sint_001 = h_f_001;
+	h_sint_001 = h_d_001;
+	h_sb_001 = h_f_001;
+	h_sb_001 = h_d_001;
+
+	h_f_001 = h_d_001;
+	h_d_001 = h_f_001;
+
+	h_uint_001 = h_f_001;
+	h_uint_001 = h_d_001;
+}

@@ -26,7 +26,8 @@ var float num8 = 1.1;
 var float num9 = 1111;
 //var u64 num10 = 111.111;
 
-var u64 var001 = 100;
+var u64 var000 = 100;
+var i64 var001 = 100;
 var float var002 = 200;
 var double var003 = 0.5;
 
@@ -96,17 +97,29 @@ function void func3() {
 	num6 = num6 - u64_asdf;
 	num6 = num6 * u64_asdf;
 	num6 = num6 / u64_asdf;
-
-
-	//var001 = var001;
-	//var001 = var002;
-	//var001 = var003;
-	//var002 = var001;
-	//var002 = var002;
-	//var002 = var003;
-	//var003 = var001;
-	//var003 = var002;
-	//var003 = var003;
 };
-function void func4() {};
-function void func5() {};
+function void func_cast_0() {
+	var000 = var000;
+	var001 = var000;
+	//var002 = var000;
+	//var003 = var000;
+};
+function void func_cast_1() {
+	var000 = var001;
+	var001 = var001;
+	var002 = var001;
+	var003 = var001;
+};
+function void func_cast_2() {
+	var000 = var002;
+	var001 = var002;
+	var002 = var002;
+	var003 = var002;
+};
+function void func_cast_3() {
+	var000 = var003;
+	var001 = var003;
+	var002 = var003;
+	var003 = var003;
+};
+
