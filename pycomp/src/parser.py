@@ -465,9 +465,6 @@ class TypeCTX:
             print("TypeError: type has cyclic dependencies.")
             ast.token().mark()
             quit()
-        #print("size",self.sizeforname)
-        #print("alig",self.alignmentforname)
-        #print("offset",self.structmemberoffset)
 
 class CodeCTXFunction:
     """
@@ -1840,23 +1837,6 @@ class ASTObjectFunction(ASTObject):
             # l[4]
             # expect (comma list):
             self.body = ASTObjectExpressionScope(l[4])
-            # # unpack = ptparse_unpack_brackets(l[4],"{")
-            # # if unpack is None:
-            # #     print("PTParseError: syntax error: expected function body brackets.")
-            # #     ptparse_markfirsttokeninlist([l[4]])
-            # #     quit()
-            # # 
-            # # unpack = ptparse_strip(unpack)
-            # # tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
-
-            # # # parse list of body instructions.
-            # # # They are a sequence of expressions.
-            # # # For this we apply a general expression detector.
-            # # self.body = []
-            # # for ll in listoflists:
-            # #     if len(ll) > 0:
-            # #         exp = ptparse_expression((False,([],[ll])))
-            # #         self.body.append(exp)
         else: # function declaration
             self.body = None
     
@@ -2640,6 +2620,8 @@ class ASTObjectExpressionName(ASTObjectExpression):
                     return vType,True,None
             else:
                 print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
+                self.token().mark()
+                quit()
                 
         else:
             assert(False and "should never end here")
@@ -3099,7 +3081,6 @@ class ASTObjectBase(ASTObject):
         self.codegen_functions(codectx)
         
         codectx.write(filename,outfile)
-        assert(False and "implement code gen!")
 
     def codegen_globals(self,codectx):
         for name,var in self.varconst.items():
@@ -3108,7 +3089,6 @@ class ASTObjectBase(ASTObject):
             if var.expression is not None:
                 eType,eReg,eVal = var.expression.codegen_expression(codectx,needImmediate=True)
                 assert(eReg == False)
-                print(f"var {name}, {eType.toStr()}, {eReg}, {eVal}")
                 
                 newVal = var.type.softCastImmediate(eType,eVal)
                 if newVal is None:
@@ -3127,10 +3107,6 @@ class ASTObjectBase(ASTObject):
 
     def codegen_functions(self,codectx):
         for name,func in self.functions.items():
-            print(name,func)
-            print("ret",func.return_type)
-            print("arg",func.arguments)
-
             # 1 open function
             codectx.function_open(name)
             
@@ -3140,14 +3116,7 @@ class ASTObjectBase(ASTObject):
             #codectx.function_alloc_var_from_reg("c","rdx")
         
             # 3 body
-            #codectx.function_var_to_reg("c","rax")
-            #codectx.function_var_to_reg("b","rcx")
-            #codectx.function_var_to_reg("a","rdx")
-            #codectx.function_put_code("addl %ecx, %eax")
-            #codectx.function_put_code("addl %edx, %eax")
-
             ##codectx.function_var_to_reg("a","rax") # return
-            
             
             codectx.function_put_code("")
             eType,eReg,eVal = func.body.codegen_expression(codectx,needImmediate=False)
