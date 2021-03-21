@@ -575,9 +575,11 @@ class CodeCTXFunction:
         self.code.append(f"{self.indent}{line}")
     
     def open_scope(self):
+        self.put_code_line(f"# new scope")
         self.scopes.append([])
 
     def close_scope(self):
+        self.put_code_line(f"# end scope")
         if len(self.scopes)<2:
             print(self.scopes)
             assert(False and "less than two scopes are left, cannot close one now")
@@ -688,10 +690,10 @@ class CodeCTX:
     
     def function_open_scope(self):
         assert(not self.function_cur is None)
-        self.function_cur.open_scope(vname)
+        self.function_cur.open_scope()
     def function_close_scope(self):
         assert(not self.function_cur is None)
-        self.function_cur.close_scope(vname)
+        self.function_cur.close_scope()
 
     def function_get_name(self,name):
         """Get info about the name
@@ -1067,6 +1069,8 @@ def ptparse_expression(pt):
                         tokens[0].mark()
                         quit()
                     return ptparse_expression(strip)
+                elif tk.value == "{":
+                    return ASTObjectExpressionScope(pt)
                 else:
                     print("PTParseError: unexpected bracket in expression.")
                     tokens[0].mark()
@@ -1835,23 +1839,24 @@ class ASTObjectFunction(ASTObject):
             # check body:
             # l[4]
             # expect (comma list):
-            unpack = ptparse_unpack_brackets(l[4],"{")
-            if unpack is None:
-                print("PTParseError: syntax error: expected function body brackets.")
-                ptparse_markfirsttokeninlist([l[4]])
-                quit()
-            
-            unpack = ptparse_strip(unpack)
-            tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
+            self.body = ASTObjectExpressionScope(l[4])
+            # # unpack = ptparse_unpack_brackets(l[4],"{")
+            # # if unpack is None:
+            # #     print("PTParseError: syntax error: expected function body brackets.")
+            # #     ptparse_markfirsttokeninlist([l[4]])
+            # #     quit()
+            # # 
+            # # unpack = ptparse_strip(unpack)
+            # # tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
 
-            # parse list of body instructions.
-            # They are a sequence of expressions.
-            # For this we apply a general expression detector.
-            self.body = []
-            for ll in listoflists:
-                if len(ll) > 0:
-                    exp = ptparse_expression((False,([],[ll])))
-                    self.body.append(exp)
+            # # # parse list of body instructions.
+            # # # They are a sequence of expressions.
+            # # # For this we apply a general expression detector.
+            # # self.body = []
+            # # for ll in listoflists:
+            # #     if len(ll) > 0:
+            # #         exp = ptparse_expression((False,([],[ll])))
+            # #         self.body.append(exp)
         else: # function declaration
             self.body = None
     
@@ -1873,8 +1878,7 @@ class ASTObjectFunction(ASTObject):
             arg.print_ast(depth = depth+step)
         if self.body:
             print(" "*depth + f"body:")
-            for exp in self.body:
-                exp.print_ast(depth = depth+step)
+            self.body.print_ast(depth = depth+step)
         else:
             print(" "*depth + f"declaration")
  
@@ -2006,7 +2010,57 @@ class ASTObjectExpression(ASTObject):
         print(f"not implemented {type(self)}")
         assert(False and "not implemented")
 
+class ASTObjectExpressionScope(ASTObjectExpression):
+    """Code scope {block}"""
 
+    def __init__(self,pt):
+        unpack = ptparse_unpack_brackets(pt,"{")
+        self.token_ = pt[1][0][0]
+        if unpack is None:
+            print("PTParseError: syntax error: expected scope brackets.")
+            ptparse_markfirsttokeninlist([pt])
+            quit()
+        
+        unpack = ptparse_strip(unpack)
+        tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
+
+        # parse list of body instructions.
+        # They are a sequence of expressions.
+        # For this we apply a general expression detector.
+        self.body = []
+        for ll in listoflists:
+            if len(ll) > 0:
+                exp = ptparse_expression((False,([],[ll])))
+                self.body.append(exp)
+
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return False
+
+    def token(self):
+        return self.token_
+
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[Scope]")
+        for exp in self.body:
+            exp.print_ast(depth = depth+step)
+
+    def codegen_expression(self,codectx,needImmediate):
+        """See super for desc"""
+        
+        codectx.function_open_scope()
+        
+        codectx.function_put_code(f"")
+        for exp in self.body:
+            eType,eReg,eVal = exp.codegen_expression(codectx,needImmediate)
+            codectx.function_put_code(f"")
+        
+        codectx.function_close_scope()
+
+        return ASTObjectTypeVoid(None,token=self.token()),True,None
+
+ 
 class ASTObjectExpressionAssignment(ASTObjectExpression):
     """Assignment of some kind"""
     def __init__(self,pt):
@@ -3096,9 +3150,7 @@ class ASTObjectBase(ASTObject):
             
             
             codectx.function_put_code("")
-            for exp in func.body:
-                eType,eReg,eVal = exp.codegen_expression(codectx,needImmediate=False)
-                codectx.function_put_code("")
+            eType,eReg,eVal = func.body.codegen_expression(codectx,needImmediate=False)
 
             # 4 close function
             codectx.function_close()

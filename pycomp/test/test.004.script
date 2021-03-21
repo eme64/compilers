@@ -35,6 +35,9 @@ var u8 u8_five = 5;
 var i32 i32_five = -5;
 var u64 u64_asdf = 100000;
 
+// pass-through currently not implemented
+//var u64 asdf = var u64 asdfasdf = 100;
+
 function void func1() {
 	num6 = 2;
 	num7 = 2.345;
@@ -133,5 +136,16 @@ function void test_local() {
 	num3 = l1;
 	num4 = l1;
 	num5 = l1;
+	num6 = l1;
+	
+	{
+		var i32 l001 = 1;
+		l001 = l001 + 2;
+	};
+	{
+		var i32 l001 = 1;
+		l001 = l001 + 2;
+		l1 = l001;
+	};
 	num6 = l1;
 };
