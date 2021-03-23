@@ -225,7 +225,8 @@ class BasicLexer(Lexer):
         keyword_names = {t:1 for t in [
                 "struct","function","var","const",
                 "cast","sizeof",
-                "if","while","for",
+                "if","else","elif",
+                "while","for",
                 "return",
                 ]}
         builtintype_names = {t:1 for t in [

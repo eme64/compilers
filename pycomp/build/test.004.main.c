@@ -20,6 +20,10 @@ extern void func_cast_2();
 extern void func_cast_3();
 extern void test_local();
 
+extern void branch_1();
+int branch_1_cond = 0;
+int branch_1_res = 0;
+
 extern uint64_t var000;
 extern int64_t var001;
 extern float  var002;
@@ -59,6 +63,14 @@ int main(){
 	printf("test_local, %d, %d, %d, %ld, %d, %ld\n",num1,num2,num3,num4,num5,num6);
 	test_local();
 	printf("test_local, %d, %d, %d, %ld, %d, %ld\n",num1,num2,num3,num4,num5,num6);
+	
+	printf("\n");
+	for(int i=-10;i<10;i++){
+		printf("branch_1 %d\n",i);
+		branch_1_cond = i;
+		branch_1();
+		printf("res: %d\n",branch_1_res);
+	}
 }
 
 

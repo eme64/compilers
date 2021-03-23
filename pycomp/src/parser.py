@@ -564,19 +564,22 @@ class CodeCTXFunction:
         offset = self.nametooffset[vname]
         return f"-{offset}(%rbp)"
 
-    def put_code_line(self,line):
+    def put_code_line(self,line,indent = None):
         """You can put any code here, but please:
         Do not change rbp,rsp.
         And make sure to stick to cdecl convention
         """
-        self.code.append(f"{self.indent}{line}")
+        if indent is None:
+            indent = self.indent
+        self.code.append(f"{indent}{line}")
     
     def open_scope(self):
-        self.put_code_line(f"# new scope")
+        self.put_code_line(f"# new scope [{len(self.scopes)}]")
         self.scopes.append([])
+        return len(self.scopes)-1
 
     def close_scope(self):
-        self.put_code_line(f"# end scope")
+        self.put_code_line(f"# end scope [{len(self.scopes)-1}]")
         if len(self.scopes)<2:
             print(self.scopes)
             assert(False and "less than two scopes are left, cannot close one now")
@@ -585,6 +588,21 @@ class CodeCTXFunction:
             self.dealloc_var(vname)
         self.scopes.pop()
 
+    def simulate_scope_teardown(self,target):
+        self.put_code_line(f"# teardown scope [{len(self.scopes)-1}-{target}]")
+        idx = -1
+        size = 0
+        varss = []
+        for _ in range(len(self.scopes) - target):
+            print(self.scopes[idx])
+            for vname in reversed(self.scopes[idx]):
+                size += self.nametosize[vname]
+                varss.append(vname)
+
+            idx -= 1
+        self.code.append(f"{self.indent}addq ${size},%rsp # ~var {','.join(varss)}")
+    
+        
     def check_close(self):
         # release last scope
         if len(self.scopes)!=1:
@@ -676,9 +694,9 @@ class CodeCTX:
     def function_reg_to_var(self,vname,reg):
         assert(not self.function_cur is None)
         self.function_cur.reg_to_var(vname,reg)
-    def function_put_code(self,line):
+    def function_put_code(self,line, indent = None):
         assert(not self.function_cur is None)
-        self.function_cur.put_code_line(line)
+        self.function_cur.put_code_line(line, indent)
 
     def function_var_access_str(self,vname):
         """get variable access string"""
@@ -687,10 +705,13 @@ class CodeCTX:
     
     def function_open_scope(self):
         assert(not self.function_cur is None)
-        self.function_cur.open_scope()
+        return self.function_cur.open_scope()
     def function_close_scope(self):
         assert(not self.function_cur is None)
         self.function_cur.close_scope()
+    def function_simulate_scope_teardown(self,target):
+        assert(not self.function_cur is None)
+        self.function_cur.simulate_scope_teardown(target)
 
     def function_get_name(self,name):
         """Get info about the name
@@ -959,7 +980,18 @@ def ptparse_tokenmin(t1,t2):
     else:
         return t2
 
-def ptparse_getfirsttoken(pt):
+def ptparse_tokenmax(t1,t2):
+    """returns the last of the two tokens"""
+    if t1 is None:
+        return t2
+    if t2 is None:
+        return t1
+    if t1.line > t2.line or (t1.line==t2.line and t1.start >= t2.start):
+        return t1
+    else:
+        return t2
+
+def ptparse_getfirsttoken(pt,cmpf = ptparse_tokenmin):
     """given pt, extract first token (recursively)"""
     isToken,payload = pt
     if isToken:
@@ -968,17 +1000,17 @@ def ptparse_getfirsttoken(pt):
         tokens,listoflists = payload
         cur = None
         for t in tokens:
-            cur = ptparse_tokenmin(cur,t)
+            cur = cmpf(cur,t)
         for l in listoflists:
             for pt2 in l:
-                cur = ptparse_tokenmin(cur, ptparse_getfirsttoken(pt2))
+                cur = cmpf(cur, ptparse_getfirsttoken(pt2,cmpf))
         return cur
 
-def ptparse_markfirsttokeninlist(l):
+def ptparse_markfirsttokeninlist(l,cmpf = ptparse_tokenmin):
     """takes list of pt's, search recursively for first token"""
     cur = None
     for pt in l:
-        cur = ptparse_tokenmin(cur, ptparse_getfirsttoken(pt))
+        cur = cmpf(cur, ptparse_getfirsttoken(pt,cmpf))
     cur.mark()
 
 
@@ -1019,7 +1051,7 @@ def ptparse_expression(pt):
         elif tk.name == "num":
             return ASTObjectExpressionNumber(pt)
         else:
-            print("PTParseError: unexpected token (expected: name, string or number)")
+            print("PTParseError: unexpected token at beginning of expression.")
             tk.mark()
             quit()
             
@@ -1041,6 +1073,13 @@ def ptparse_expression(pt):
             elif ptparse_isToken(ll[0], [("keyword","return")]):
                 # return statement
                 return ASTObjectExpressionReturn(pt)
+
+            elif ptparse_isToken(ll[0],[("keyword","if")]):
+                return ASTObjectExpressionIf(pt)
+            elif ptparse_isToken(ll[0],[("keyword","while")]):
+                assert(False and "while not implemented")
+            elif ptparse_isToken(ll[0],[("keyword","while")]):
+                assert(False and "for not implemented")
             else:
                 # list of elements: function calls
                 if len(ll)>2:
@@ -1050,6 +1089,7 @@ def ptparse_expression(pt):
                 
                 if ptparse_isToken(ll[0],[("keyword","cast")]):
                     assert(False and "cast not implemented")
+                
                 return ASTObjectExpressionFunctionCall(pt)
         else:
             # inspect first token:
@@ -1307,6 +1347,12 @@ class ASTObjectType(ASTObject):
             return oval
         else:
             return None
+
+    def testCond(self,codectx,regDict,floatReg):
+        """put test asm call, assume value is in register
+        Return True or False (success?)
+        """
+        return False
 
 class ASTObjectTypeVoid(ASTObjectType):
     """
@@ -1635,6 +1681,20 @@ class ASTObjectTypeNumber(ASTObjectType):
 
         return True
 
+
+    def testCond(self,codectx,regDict,floatReg):
+        """put test asm call, assume value is in register
+        Return True or False (success?)
+        """
+        size = ASTObjectTypeNumber_types[self.name]
+        asmType = ASM_size_to_type[size]
+        letter = ASM_type_to_letter[asmType]
+        reg = regDict[asmType]
+        if self.name in ASTObjectTypeNumber_types_float:
+            assert(False and "float not impl for test TODO")
+        else:
+            codectx.function_put_code(f"test{letter} %{reg},%{reg}")
+        return True
 
 class ASTObjectTypeStruct(ASTObjectType):
     """
@@ -1995,11 +2055,11 @@ class ASTObjectExpressionScope(ASTObjectExpression):
 
     def __init__(self,pt):
         unpack = ptparse_unpack_brackets(pt,"{")
-        self.token_ = pt[1][0][0]
         if unpack is None:
             print("PTParseError: syntax error: expected scope brackets.")
             ptparse_markfirsttokeninlist([pt])
             quit()
+        self.token_ = pt[1][0][0]
         
         unpack = ptparse_strip(unpack)
         tokens,listoflists = ptparse_delimiter_list(unpack,[("semicolon",";")])
@@ -2040,7 +2100,129 @@ class ASTObjectExpressionScope(ASTObjectExpression):
 
         return ASTObjectTypeVoid(None,token=self.token()),True,None
 
- 
+
+class ASTObjectExpressionIf(ASTObjectExpression):
+    """if elif else - statements"""
+    def __init__(self,pt):
+        isToken, payload = pt
+        assert(not isToken)
+        tokens,listoflists = payload
+        assert(len(tokens)==0)
+        assert(len(listoflists)==1)
+        ll = listoflists[0]
+        assert(ptparse_isToken(ll[0],[("keyword","if")]))
+
+        llidx = 0 # next to look at
+
+        # now go parse form:
+        # if (cond) {block}
+        # opt*: elif (cond) {block}
+        # opt:  else {block}
+        
+        self.conditions = []
+        self.blocks = []
+        self.tokens_ = [ll[0][1]]
+
+        state = 1 # what is currently expected
+        # 0: elif / else
+        # 1: cond
+        # 2: block
+        # 3: last block
+
+        while(True):
+            llidx+=1
+            if len(ll) <= llidx:
+                if state == 0:
+                    return
+                print("SyntaxError: unexpected termination of if statement.")
+                ptparse_markfirsttokeninlist(ll,ptparse_tokenmax)
+                quit()
+
+            if state==0:
+                self.tokens_.append(ll[llidx][1])
+                if ptparse_isToken(ll[llidx],[("keyword","elif")]):
+                    state = 1
+                elif ptparse_isToken(ll[llidx],[("keyword","else")]):
+                    state = 3
+                else:
+                    print("SyntaxError: unexpected token in if statement (expected: elif or else).")
+                    ptparse_markfirsttokeninlist([ll[llidx]])
+                    quit()
+            elif state==1:
+                # expect condition
+                cond = ptparse_expression(ll[llidx])
+                self.conditions.append(cond)
+                state = 2
+            else:
+                # expect block
+                block = ASTObjectExpressionScope(ll[llidx])
+                self.blocks.append(block)
+                if state == 3:
+                    if len(ll)>llidx+1:
+                        print("SyntaxError: unexpected token after else code-block.")
+                        ptparse_markfirsttokeninlist(ll[llidx+1:])
+                        quit()
+
+                    return # terminated
+                state = 0
+    
+    def token(self):
+        return self.tokens_[0]
+
+    def codegen_expression(self,codectx,needImmediate):
+        """check super for desc
+        if needImmediate this fails.
+        returns void (TODO: check if last expression compatible, return these)
+        """
+        if needImmediate:
+            print(f"error: if statement cannot be used for static value (is not immediate value).")
+            self.token().mark()
+            quit()
+        
+        codectx.function_put_code(f"# IF")
+
+        # enerate some tags
+        tags = [codectx.new_tag() for block in self.blocks]
+        last_tag = tags[-1]
+
+        # open if scope
+        scope_id = codectx.function_open_scope()
+
+        for i,block in enumerate(self.blocks):
+            if i>0:
+                codectx.function_put_code(tags[i-1]+":", indent="")
+            if i < len(self.conditions):
+                # calculate condition
+                cond = self.conditions[i]
+                eType,eReg,eVal = cond.codegen_expression(codectx,needImmediate)
+                if not eReg:
+                    eType.immToReg(codectx,eVal,ASM_type_to_rax,"xmm0")
+                    eReg = True
+
+                # test
+                if not eType.testCond(codectx,ASM_type_to_rax,"xmm0"):
+                    print(f"TypeError: could not use value of type '{eType.toStr()}' for condition.")
+                    self.tokens_[i].mark()
+                    quit()
+                
+                codectx.function_put_code(f"jz {tags[i]} # if false jump to next")
+
+            # put block
+            codectx.function_put_code("# If block")
+            sType,sReg,sVal = block.codegen_expression(codectx,needImmediate)
+            if i < len(self.blocks)-1:
+                codectx.function_put_code("# If block teardown")
+                codectx.function_simulate_scope_teardown(scope_id)
+                codectx.function_put_code(f"jmp {last_tag} # to end if")
+
+        codectx.function_close_scope()
+        
+        # put final tag here:
+        codectx.function_put_code(last_tag+":", indent="")
+        codectx.function_put_code("# End IF")
+        
+        return ASTObjectTypeVoid(pt=None,token=self.token()),True,None
+
 class ASTObjectExpressionAssignment(ASTObjectExpression):
     """Assignment of some kind"""
     def __init__(self,pt):

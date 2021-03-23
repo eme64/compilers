@@ -149,3 +149,25 @@ function void test_local() {
 	};
 	num6 = l1;
 };
+
+
+var i32 branch_1_cond;
+var i32 branch_1_res;
+function void branch_1() {
+	var i32 loc1 = 1;
+	if(branch_1_cond + (var i32 loc2 = 3)) {
+		branch_1_res = loc2;
+		var i32 loc3 = 3;
+	} else {
+		branch_1_res = loc2 + 5;
+	};
+	if(branch_1_cond) {
+		branch_1_res = branch_1_res + 1;
+	};
+	if(branch_1_cond) {
+		branch_1_res = branch_1_res + 1;
+	} elif (1) {
+		branch_1_res = branch_1_res + 1;
+	};
+	
+};
