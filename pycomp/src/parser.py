@@ -594,7 +594,6 @@ class CodeCTXFunction:
         size = 0
         varss = []
         for _ in range(len(self.scopes) - target):
-            print(self.scopes[idx])
             for vname in reversed(self.scopes[idx]):
                 size += self.nametosize[vname]
                 varss.append(vname)
@@ -828,6 +827,7 @@ class CodeCTX:
                 f.write(f'{fname}:\n')
                 f.write(f'LFB{func.fid}:\n')
                 f.write(f'{indent}.cfi_startproc\n')
+                f.write(f'{indent}pushq %rcx\n')
                 f.write(f'{indent}pushq %rbp\n')
                 
                 # set bp to new base:
@@ -838,8 +838,11 @@ class CodeCTX:
                     f.write(c)
                     f.write("\n")
 
+                
+                f.write(f'.fend{func.fid}:\n')
                 f.write(f'{indent}# # body end\n') # body end
                 f.write(f'{indent}popq  %rbp\n')
+                f.write(f'{indent}popq  %rcx\n')
                 f.write(f'{indent}ret\n')
                 f.write(f'{indent}.cfi_endproc\n')
                 f.write(f'LFE{func.fid}:\n')
@@ -849,7 +852,9 @@ class CodeCTX:
             # Footer
             f.write(f'{indent}.ident "peterem-comp: 0.001"\n')
             f.write(f'{indent}.section{indent}.note.GNU-stack,"",@progbits\n')
-
+    def frame_offset(self):
+        """number of bytes that rbp is off from frame"""
+        return 24
 
 # ################################################
 # # Helper Functions for data extraction from pt #
@@ -1691,7 +1696,7 @@ class ASTObjectTypeNumber(ASTObjectType):
         letter = ASM_type_to_letter[asmType]
         reg = regDict[asmType]
         if self.name in ASTObjectTypeNumber_types_float:
-            assert(False and "float not impl for test TODO")
+            return False
         else:
             codectx.function_put_code(f"test{letter} %{reg},%{reg}")
         return True
@@ -1823,6 +1828,38 @@ class ASTObjectTypeFunction(ASTObjectType):
     def toStr(self):
         args = ",".join([a.toStr() for a in self.argument_types])
         return f"({self.return_type.toStr()}(args))"
+
+    def get_arg_layout(self):
+        """returns list of tuples (isReg,location)
+        isReg: if true: location is register name
+               if false: location is 0-based index for stack
+        calling convention based on cdecl
+        rdi, rsi, rdx, rcx, r8, r9
+        xmm0-7
+        index = i: on stack: (offset+8i)(%rsp) for i=0,1...
+        """
+        
+        regs = deque(["rdi","rsi","rdx","rcx","r8","r9"])
+        fregs = deque([f"xmm{i}" for i in range(8)])
+        index = 0
+
+        res = []
+        for aType in self.argument_types:
+            if aType.isNumber() and aType.name in ASTObjectTypeNumber_types_float:
+                # float
+                if len(fregs)==0:
+                    res.append((False,index))
+                    index+=1
+                else:
+                    res.append((True,fregs.popleft()))
+            else:
+                # other
+                if len(regs)==0:
+                    res.append((False,index))
+                    index+=1
+                else:
+                    res.append((True,regs.popleft()))
+        return res
 
 class ASTObjectFunction(ASTObject):
     """
@@ -1956,7 +1993,19 @@ class ASTObjectFunction(ASTObject):
             return other
         return self
 
+    def codegen_args_to_vars(self,codectx):
+        """allocate local variables from arguments (reg/stack)"""
+        if len(self.arguments)==0:
+            return
+        layout = self.signature().get_arg_layout()
 
+        for i,arg in enumerate(self.arguments):
+            isReg,location = layout[i]
+            if isReg:
+                codectx.function_alloc_var_from_reg(arg.name,location,arg.type,False)
+            else:
+                codectx.function_put_code(f"movq {codectx.frame_offset()+8*location}(%rbp), %rax # load arg from stack")
+                codectx.function_alloc_var_from_reg(arg.name,"rax",arg.type,False)
         
 class ASTObjectStruct(ASTObject):
     """
@@ -3293,6 +3342,7 @@ class ASTObjectBase(ASTObject):
             codectx.function_open(name)
             
             # 2 put arg into local variables
+            func.codegen_args_to_vars(codectx)
             #codectx.function_alloc_var_from_reg("a","rdi")
             #codectx.function_alloc_var_from_reg("b","rsi")
             #codectx.function_alloc_var_from_reg("c","rdx")

@@ -171,3 +171,84 @@ function void branch_1() {
 	};
 	
 };
+
+var i32 args_1_res;
+function void args_1(var i32 a1, var i32 a2) {
+	args_1_res = a1*2+a2;
+};
+
+var i32 args_001_res;
+function void args_001(
+	var i32 a1, 
+	var i32 a2,
+	var i32 a3,
+	var i32 a4,
+	var i32 a5,
+	var i32 a6,
+	var i32 a7,
+	var i32 a8,
+	var i32 a9,
+	var i32 a10
+	){
+	args_001_res = 0
+		+ 1 * a1
+		+ 2 * a2
+		+ 3 * a3
+		+ 4 * a4
+		+ 5 * a5
+		+ 6 * a6
+		+ 7 * a7
+		+ 8 * a8
+		+ 9 * a9
+		+ 10* a10;
+};
+
+var float args_002_res;
+function void args_002(
+	var float a1, 
+	var float a2,
+	var float a3,
+	var float a4,
+	var float a5,
+	var float a6,
+	var float a7,
+	var float a8,
+	var float a9,
+	var float a10
+	){
+	args_002_res = 0.0
+		+ 1.0 * a1
+		+ 2.0 * a2
+		+ 3.0 * a3
+		+ 4.0 * a4
+		+ 5.0 * a5
+		+ 6.0 * a6
+		+ 7.0 * a7
+		+ 8.0 * a8
+		+ 9.0 * a9
+		+ 10.0* a10;
+};
+
+function void args_003(
+	var float a1, 
+	var i32 a2,
+	var float a3,
+	var i32 a4,
+	var float a5,
+	var i32 a6,
+	var float a7,
+	var i32 a8,
+	var float a9,
+	var i32 a10,
+	var float a11,
+	var i32 a12,
+	var float a13,
+	var i32 a14,
+	var float a15,
+	var i32 a16,
+	var float a17,
+	var i32 a18,
+	var float a19,
+	var i32 a20
+	){};
+
