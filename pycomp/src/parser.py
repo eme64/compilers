@@ -473,10 +473,11 @@ class CodeCTXFunction:
     stack style:
     -open/close variable (space on stack with a name)
     """
-    def __init__(self,name,fid,codectx,indent = " "*3):
+    def __init__(self,name,fid,codectx,return_type,indent = " "*3):
         self.name = name
         self.codectx = codectx
         self.fid = fid # number id for function, local to file, unique in file
+        self.return_type = return_type
 
         # stack management:
         self.bp_diff = 0 # sp vs bp
@@ -670,11 +671,11 @@ class CodeCTX:
             assert(False)
         del self.names[name]
 
-    def function_open(self,fname):
+    def function_open(self,fname,return_type):
         self.check_name(fname)
         assert(self.function_cur is None)
         fid = len(self.functions)
-        self.function_cur = CodeCTXFunction(fname,fid,self)
+        self.function_cur = CodeCTXFunction(fname,fid,self,return_type)
     def function_close(self):
         assert(not self.function_cur is None)
         self.function_cur.check_close()
@@ -3046,6 +3047,40 @@ class ASTObjectExpressionReturn(ASTObjectExpression):
         print(" "*depth + f"expression:")
         self.expression.print_ast(depth = depth+step)
 
+    def codegen_expression(self,codectx,needImmediate):
+        """See super for desc"""
+        if needImmediate:
+            print(f"error: return statement cannot be used for static value (is not immediate value).")
+            self.token().mark()
+            quit()
+ 
+        eType,eReg,eVal = self.expression.codegen_expression(codectx,needImmediate)
+
+        rType = codectx.function_cur.return_type
+        fid = codectx.function_cur.fid
+        print(eType,eReg,eVal)
+        print(rType)
+        if not eReg:
+            assert(False and "not implemented return imm")
+        
+        # try conversion
+        if not eType.equals(rType):
+            success = False
+            if eType.isNumber() and rType.isNumber():
+                success = rType.softCastRegister(codectx, eType, ASM_type_to_rax, "xmm0")
+            
+            if not success:
+                print(f"TypeError: cannot return '{eType.toStr()}' instead of '{rType.toStr()}'.")
+                self.token().mark()
+                quit()
+        
+        # Teardown and jump
+        codectx.function_put_code("# return")
+        codectx.function_simulate_scope_teardown(0)
+        codectx.function_put_code(f"jmp .fend{fid} # return")
+
+        return ASTObjectTypeVoid(None,token=self.token()),True,None
+ 
 class ASTObjectVarConst(ASTObject):
     """
     Var/Const ast object
@@ -3339,7 +3374,7 @@ class ASTObjectBase(ASTObject):
     def codegen_functions(self,codectx):
         for name,func in self.functions.items():
             # 1 open function
-            codectx.function_open(name)
+            codectx.function_open(name,func.return_type)
             
             # 2 put arg into local variables
             func.codegen_args_to_vars(codectx)

@@ -252,3 +252,8 @@ function void args_003(
 	var i32 a20
 	){};
 
+
+function i32 return_1(var i32 a1,var i32 a2){
+	return (2*a1+3*a2);
+	// TODO: continue testing return
+}

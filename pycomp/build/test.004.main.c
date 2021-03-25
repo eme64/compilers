@@ -29,6 +29,8 @@ int branch_1_res = 0;
 extern void args_1(int a1, int a2);
 int args_1_res = 0;
 
+extern int return_1(int a1,int a2);
+
 extern void args_001(int a1,int a2,int a3,int a4,int a5,int a6,int a7,int a8,int a9, int a10);
 int args_001_res = 0;
 extern void args_002(float a1,float a2,float a3,float a4,float a5,float a6,float a7,float a8,float a9, float a10);
@@ -123,6 +125,15 @@ int main(){
 		//printf("arg: %f %f %f %f %f %f %f %f %f %f\n",a1,a2,a3,a4,a5,a6,a7,a8,a9,a10);
 		assert(calc == args_002_res);
 	}
+
+	for(int a1=-10;a1<10;a1++){
+		for(int a2=-10;a2<10;a2++){
+			int r = return_1(a1,a2);
+			assert(r == 2*a1+3*a2);
+		}
+	}
+
+
 }
 
 
