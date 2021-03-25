@@ -30,11 +30,15 @@ extern void args_1(int a1, int a2);
 int args_1_res = 0;
 
 extern int return_1(int a1,int a2);
+extern int return_2(int a1,int a2);
+extern int return_2_err;
 
 extern void args_001(int a1,int a2,int a3,int a4,int a5,int a6,int a7,int a8,int a9, int a10);
 int args_001_res = 0;
 extern void args_002(float a1,float a2,float a3,float a4,float a5,float a6,float a7,float a8,float a9, float a10);
 float args_002_res = 0;
+
+extern int array_r(int* a, int i);
 
 extern uint64_t var000;
 extern int64_t var001;
@@ -132,8 +136,23 @@ int main(){
 			assert(r == 2*a1+3*a2);
 		}
 	}
+	for(int a1=-10;a1<10;a1++){
+		for(int a2=-10;a2<10;a2++){
+			int r = return_2(a1,a2);
+			assert(return_2_err==0);
+			if(a1){assert(r==a2+1);}else{assert(r==a2+2);}
+		}
+	}
 
-
+	int* a = (int*)malloc(100*sizeof(int));
+	for(int i=0;i<100;i++){
+		a[i]=i;
+	}
+	for(int i=0;i<100;i++){
+		int val = array_r(a,i);
+		//printf("%d %d %d\n",i,val,a[i]);
+		assert(a[i] == val);
+	}
 }
 
 

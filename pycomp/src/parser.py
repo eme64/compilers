@@ -1415,6 +1415,11 @@ class ASTObjectTypePointer(ASTObjectType):
     
     def isPointer(self):
         return True
+    def canDeref(self):
+        """can the pointer type be dereferenced?"""
+        if self.type.isPointer() or self.type.isNumber():
+            return True
+        return False
 
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[pointer-type]")
@@ -1429,7 +1434,7 @@ class ASTObjectTypePointer(ASTObjectType):
         return self.type.equals(other.type)
 
     def toStr(self):
-        return f"*{self.type.toStr}"
+        return f"*{self.type.toStr()}"
     def sizeof(self):
         return 8
 
@@ -1526,7 +1531,10 @@ class ASTObjectTypeNumber(ASTObjectType):
 
     def isNumber(self):
         return True
-
+    def isFloat(self):
+        return self.name in ASTObjectTypeNumber_types_float
+    def isInt(self):
+        return not self.isFloat()
     def print_ast(self,depth=0,step=3):
         print(" "*depth + f"[number-type] {self.name}")
     
@@ -2616,8 +2624,63 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                         return t,True,None
             else:
                 assert(False and "lReg, rImm - is handled!")
+        elif lType.isPointer() or rType.isPointer():
+            # if not ptr, check if int
+            if not lType.isPointer():
+                if not (lType.isNumber() and lType.isInt()):
+                    print(f"TypeError: left-hand-side type '{lType.toStr()}' not compatible with pointer arithmetic.")
+                    self.token().mark()
+                    quit()
+            if not rType.isPointer():
+                if not (rType.isNumber() and rType.isInt()):
+                    print(f"TypeError: right-hand-side type '{rType.toStr()}' not compatible with pointer arithmetic.")
+                    self.token().mark()
+                    quit()
+            
+            # if either not reg, make reg
+            if rReg:
+                pass # in rax
+            else:
+                rType.immToReg(codectx,rVal,ASM_type_to_rax,"xmm0")
+                rReg = True
+
+            if lReg:
+                codectx.function_var_to_reg(tmp,"rcx")
+            else:
+                # imm to rax / xmm0
+                lType.immToReg(codectx,lVal,ASM_type_to_rcx,"xmm1")
+                lReg = True
+            
+            # if either not ptr: make to u64.
+            if not lType.isPointer():
+                t = ASTObjectTypeNumber(None,"u64")
+                success = t.softCastRegister(codectx, lType, ASM_type_to_rcx, "xmm1")
+                if not success:
+                    print(f"TypeError: could not convert number type '{lType.toStr()}' to 'u64' for pointer arithmatic.")
+                    self.lhs.token().mark()
+                    quit()
+                assert(False and "not pointer")
+            if not rType.isPointer():
+                t = ASTObjectTypeNumber(None,"u64")
+                success = t.softCastRegister(codectx, rType, ASM_type_to_rax, "xmm0")
+                if not success:
+                    print(f"TypeError: could not convert number type '{rType.toStr()}' to 'u64' for pointer arithmatic.")
+                    self.lhs.token().mark()
+                    quit()
+                # now we know: l=rcx ptr, r=rax u64
+
+                if self.operator == "+":
+                    codectx.function_put_code(f"leaq 0(%rcx,%rax,{lType.type.sizeof()}), %rax # ptr+int")
+                    return lType,True,None
+                else:
+                    print(f"TypeError: cannot use operator on types '{lType.toStr()}' and '{rType.toStr()}'.")
+                    self.token().mark()
+                    quit()
+
+                assert(False and "not pointer")
+            assert(False)
         else:
-            print(f"error: not both sides numbers {lType.toStr()} and {rType.toStr()}")
+            print(f"error: operants not compatible {lType.toStr()} and {rType.toStr()}")
             self.token().mark()
             quit()
 
@@ -2678,7 +2741,29 @@ class ASTObjectExpressionUnaryOp(ASTObjectExpression):
             quit()
 
         if aReg:
-            assert(False and "not implemented")
+            if aType.isPointer() and self.operator == "*":
+                # dereference
+                if not aType.canDeref():
+                    print(f"TypeError: type '{aType.toStr()}' cannot be dereferenced.")
+                    self.token().mark()
+                    quit()
+                else:
+                    if aType.type.isNumber() and aType.type.isFloat():
+                        assert(False and "deref float ptr")
+                    else:
+                        size = aType.type.sizeof()
+                        asmType = ASM_size_to_type[size]
+                        letter = ASM_type_to_letter[asmType]
+                        rax = ASM_type_to_rax[asmType]
+                        codectx.function_put_code(f"mov{letter} (%rax), %{rax} # %rax = deref %rax")
+                        return aType.type,True,None
+
+
+                    assert(False and "todo")
+            else:
+                print(f"TypeError: cannot apply unary operator to type '{aType.toStr()}'.")
+                self.token().mark()
+                quit()
         else:
             # immediate value:
             if aType.isNumber():
@@ -2850,8 +2935,11 @@ class ASTObjectExpressionName(ASTObjectExpression):
                     rax = ASM_type_to_rax[asmType]
                     codectx.function_put_code(f"mov{letter} {memloc}, %{rax} # %rax = {self.name}")
                     return vType,True,None
+            elif vType.isPointer():
+                codectx.function_put_code(f"movq {memloc}, %rax # %rax = {self.name}")
+                return vType,True,None
             else:
-                print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
+                print(f"TypeError: cannot read '{vType.toStr()}'.")
                 self.token().mark()
                 quit()
                 
@@ -3058,8 +3146,6 @@ class ASTObjectExpressionReturn(ASTObjectExpression):
 
         rType = codectx.function_cur.return_type
         fid = codectx.function_cur.fid
-        print(eType,eReg,eVal)
-        print(rType)
         if not eReg:
             assert(False and "not implemented return imm")
         
