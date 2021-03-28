@@ -40,6 +40,8 @@ float args_002_res = 0;
 
 extern int array_r(int* a, int i);
 extern int ptr_diff(int* a, int* b);
+struct ASDF {int a;int b;int c;};
+extern int ptr_diff_struct(struct ASDF* a, struct ASDF* b);
 
 extern uint64_t var000;
 extern int64_t var001;
@@ -158,6 +160,12 @@ int main(){
 		int* a = (int*)10000;
 		int* b = a + i;
 		int res = ptr_diff(a,b);
+		assert(res == -i);
+	}
+	for(int i=-100;i<100;i++){
+		struct ASDF* a = (struct ASDF*)10000;
+		struct ASDF* b = a + i;
+		int res = ptr_diff_struct(a,b);
 		assert(res == -i);
 	}
 }

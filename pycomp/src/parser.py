@@ -524,7 +524,7 @@ class CodeCTXFunction:
 
     def alloc_var_with_type(self,vname, vtype, vmutable):
         """Allocate variable on stack with size bytes"""
-        size = (vtype.sizeof()+7)//8 * 8
+        size = (vtype.sizeof(self)+7)//8 * 8
         self.check_name(vname)
         self.bp_diff += size
         self.nametooffset[vname] = self.bp_diff
@@ -1344,7 +1344,7 @@ class ASTObjectType(ASTObject):
         print(self)
         assert(False and "not implemented")
     
-    def sizeof(self):
+    def sizeof(self,codectx):
         print(self)
         assert(False and "not implemented")
 
@@ -1384,7 +1384,7 @@ class ASTObjectTypeVoid(ASTObjectType):
         return type(self)==type(other)
     def toStr(self):
         return "void"
-    def sizeof(self):
+    def sizeof(self,codectx):
         return 0
 
 class ASTObjectTypePointer(ASTObjectType):
@@ -1435,7 +1435,7 @@ class ASTObjectTypePointer(ASTObjectType):
 
     def toStr(self):
         return f"*{self.type.toStr()}"
-    def sizeof(self):
+    def sizeof(self,codectx):
         return 8
 
 ASTObjectTypeNumber_types = {
@@ -1549,7 +1549,7 @@ class ASTObjectTypeNumber(ASTObjectType):
  
     def toStr(self):
         return self.name
-    def sizeof(self):
+    def sizeof(self,codectx):
         return ASTObjectTypeNumber_types[self.name]
 
     def softCastImmediate(self,otype,oval):
@@ -1750,7 +1750,11 @@ class ASTObjectTypeStruct(ASTObjectType):
     
     def toStr(self):
         return self.name
- 
+    
+    def sizeof(self,codectx):
+        return codectx.typectx.sizeforname[self.name]
+
+
 class ASTObjectTypeFunction(ASTObjectType):
     """
     function type ast object
@@ -2662,7 +2666,7 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                 # now we know: l=rcx u64, r=rax ptr
 
                 if self.operator == "+":
-                    codectx.function_put_code(f"leaq 0(%rax,%rcx,{rType.type.sizeof()}), %rax # int+ptr")
+                    codectx.function_put_code(f"leaq 0(%rax,%rcx,{rType.type.sizeof(codectx)}), %rax # int+ptr")
                     return rType,True,None
                 else:
                     print(f"TypeError: cannot use operator on types '{lType.toStr()}' and '{rType.toStr()}'.")
@@ -2678,11 +2682,11 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                 # now we know: l=rcx ptr, r=rax u64
 
                 if self.operator == "+":
-                    codectx.function_put_code(f"leaq 0(%rcx,%rax,{lType.type.sizeof()}), %rax # ptr+int")
+                    codectx.function_put_code(f"leaq 0(%rcx,%rax,{lType.type.sizeof(codectx)}), %rax # ptr+int")
                     return lType,True,None
                 elif self.operator == "-":
                     codectx.function_put_code(f"negq %rax # rax = -rax")
-                    codectx.function_put_code(f"leaq 0(%rcx,%rax,{lType.type.sizeof()}), %rax # ptr-int")
+                    codectx.function_put_code(f"leaq 0(%rcx,%rax,{lType.type.sizeof(codectx)}), %rax # ptr-int")
                     return lType,True,None
                 else:
                     print(f"TypeError: cannot use operator on types '{lType.toStr()}' and '{rType.toStr()}'.")
@@ -2695,8 +2699,9 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                 if self.operator == "-":
                     codectx.function_put_code(f"subq %rax,%rcx # rcx = rcx - rax")
                     codectx.function_put_code(f"movq %rcx, %rax")
-                    codectx.function_put_code(f"movq $0, %rdx")
-                    size = rType.type.sizeof()
+                    codectx.function_put_code(f"movq %rax, %rdx")
+                    codectx.function_put_code(f"sarq $63, %rdx # make sure sign bit is correct for rdx:rax")
+                    size = rType.type.sizeof(codectx)
                     codectx.function_put_code(f"movq ${size}, %rcx")
                     codectx.function_put_code(f"idivq %rcx # rax = rax / sizeof({rType.type.toStr()})")
                     t = ASTObjectTypeNumber(None,"i64")
@@ -2781,7 +2786,7 @@ class ASTObjectExpressionUnaryOp(ASTObjectExpression):
                     if aType.type.isNumber() and aType.type.isFloat():
                         assert(False and "deref float ptr")
                     else:
-                        size = aType.type.sizeof()
+                        size = aType.type.sizeof(codectx)
                         asmType = ASM_size_to_type[size]
                         letter = ASM_type_to_letter[asmType]
                         rax = ASM_type_to_rax[asmType]
@@ -2882,7 +2887,7 @@ class ASTObjectExpressionDeclaration(ASTObjectExpression):
             quit()
 
         # allocate variable
-        if self.type.isNumber():
+        if self.type.isNumber() or self.type.isPointer():
             codectx.function_alloc_var_with_type(self.name,self.type, self.isMutable)
         else:
             print(self.type.toStr())
@@ -3043,6 +3048,9 @@ class ASTObjectExpressionName(ASTObjectExpression):
                         rax = ASM_type_to_rax[asmType]
                         codectx.function_put_code(f"mov{letter} %{rax}, {memloc} # {self.name} = %{rax}")
                         
+                elif aType.isPointer():
+                    # pointer assignment
+                    codectx.function_put_code(f"movq %rax, {memloc} # {self.name} = %rax")
                 else:
                     print(f"TypeError: cannot assign '{aType.toStr()}' to anything.")
                     assert(False)
