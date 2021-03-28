@@ -288,4 +288,7 @@ function i32 ptr_diff_struct(var (*ASDF) a, var (*ASDF) b) {
 	return aa;
 };
 function i32 ptr_struct(var (*ASDF) a, var (*ASDF) b) {
+	b->a = a->a;
+	b->b = a->b;
+	b->c = a->c;
 };

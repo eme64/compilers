@@ -1167,6 +1167,8 @@ def ptparse_expression_operator(pt):
             quit()
         else:
             # binary operator
+            if tk.value in ["->","."]:
+                return ASTObjectExpressionRef(pt)
             return ASTObjectExpressionBinOp(pt)
     else:
         print(tokens)
@@ -2421,7 +2423,7 @@ class ASTObjectExpressionFunctionCall(ASTObjectExpression):
             arg.print_ast(depth = depth+step)
 
 ASTObjectExpressionBinOp_rtl_operators = [
-        "+","-","*","/","%",
+        "+","-","*","/","%","->",".",
         ]
 
 ASM_bin_ops = {
@@ -2723,6 +2725,62 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
         print(rType,rReg,rVal)
         assert(False and "should never arrive here!")
 
+class ASTObjectExpressionRef(ASTObjectExpression):
+    """Reference of some object: a->b or a.b
+    b must be a name.
+    """
+    def __init__(self,pt):
+        isToken, payload = pt
+        assert(not isToken)
+        tokens,listoflists = payload
+        assert(len(tokens)==1)
+        assert(tokens[0].name == "operator")
+        assert(len(listoflists)==2)
+        tk = tokens[0]
+        assert( tk.value in ["->","."] )
+        
+        lhs = listoflists[0]
+        rhs = listoflists[1]
+
+        self.operator = tk.value
+        self.token_ = tk
+        
+        # sanity check if rhs is a name
+        if len(rhs)!=1 or not ptparse_isToken(rhs[0],[("name",None)]):
+            print(f"SyntaxError: expected name after reference operator '{self.operator}'.")
+            self.token().mark()
+            quit()
+
+        # extract rhs name
+        self.rhs = rhs[0][1].value
+
+        
+        self.lhs = ptparse_expression((False,([],[lhs])))
+        
+        if not self.lhs.isReadable():
+            print("PTParseError: cannot read from left-hand-side of this binary operator.")
+            tokens[0].mark()
+            quit()
+
+    def isReadable(self):
+        return True
+    def isWritable(self):
+        return True
+
+    def token(self):
+        return self.token_
+ 
+    def print_ast(self,depth=0,step=3):
+        print(" "*depth + f"[Ref] {self.operator}")
+        print(" "*depth + f"lhs:")
+        self.lhs.print_ast(depth = depth+step)
+        print(" "*depth + f"rhs: {self.rhs}")
+    
+    def codegen_expression(self,codectx,needImmediate):
+        """See super for desc"""
+        assert(False and "ref code gen")
+ 
+    
 class ASTObjectExpressionUnaryOp(ASTObjectExpression):
     """unary operator of any kind
     reads left or right side

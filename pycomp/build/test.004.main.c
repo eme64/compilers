@@ -42,6 +42,7 @@ extern int array_r(int* a, int i);
 extern int ptr_diff(int* a, int* b);
 struct ASDF {int a;int b;int c;};
 extern int ptr_diff_struct(struct ASDF* a, struct ASDF* b);
+extern int ptr_struct(struct ASDF* a, struct ASDF* b);
 
 extern uint64_t var000;
 extern int64_t var001;
@@ -167,6 +168,17 @@ int main(){
 		struct ASDF* b = a + i;
 		int res = ptr_diff_struct(a,b);
 		assert(res == -i);
+	}
+	for(int i=-100;i<100;i++){
+		struct ASDF x;
+		struct ASDF y;
+		struct ASDF* a = &x;
+		struct ASDF* b = &y;
+		a->a = i;
+		a->b = i+1;
+		a->c = i+2;
+		ptr_struct(a,b);
+		assert(a->a==b->a && a->b==b->b && a->c==b->c);
 	}
 }
 
