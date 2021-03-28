@@ -39,6 +39,7 @@ extern void args_002(float a1,float a2,float a3,float a4,float a5,float a6,float
 float args_002_res = 0;
 
 extern int array_r(int* a, int i);
+extern int ptr_diff(int* a, int* b);
 
 extern uint64_t var000;
 extern int64_t var001;
@@ -152,6 +153,12 @@ int main(){
 		int val = array_r(a,i);
 		//printf("%d %d %d\n",i,val,a[i]);
 		assert(a[i] == val);
+	}
+	for(int i=-100;i<100;i++){
+		int* a = (int*)10000;
+		int* b = a + i;
+		int res = ptr_diff(a,b);
+		assert(res == -i);
 	}
 }
 

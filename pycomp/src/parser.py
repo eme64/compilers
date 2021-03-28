@@ -205,7 +205,7 @@ class BasicParser(Parser):
                             else:
                                 print("ParseError: closing bracket did not match with opening bracket.")
                                 cur_token.mark()
-                                token.mark()
+                                tk.mark()
                                 quit()
 
                         else:
@@ -2659,7 +2659,15 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                     print(f"TypeError: could not convert number type '{lType.toStr()}' to 'u64' for pointer arithmatic.")
                     self.lhs.token().mark()
                     quit()
-                assert(False and "not pointer")
+                # now we know: l=rcx u64, r=rax ptr
+
+                if self.operator == "+":
+                    codectx.function_put_code(f"leaq 0(%rax,%rcx,{rType.type.sizeof()}), %rax # int+ptr")
+                    return rType,True,None
+                else:
+                    print(f"TypeError: cannot use operator on types '{lType.toStr()}' and '{rType.toStr()}'.")
+                    self.token().mark()
+                    quit()
             if not rType.isPointer():
                 t = ASTObjectTypeNumber(None,"u64")
                 success = t.softCastRegister(codectx, rType, ASM_type_to_rax, "xmm0")
@@ -2672,13 +2680,35 @@ class ASTObjectExpressionBinOp(ASTObjectExpression):
                 if self.operator == "+":
                     codectx.function_put_code(f"leaq 0(%rcx,%rax,{lType.type.sizeof()}), %rax # ptr+int")
                     return lType,True,None
+                elif self.operator == "-":
+                    codectx.function_put_code(f"negq %rax # rax = -rax")
+                    codectx.function_put_code(f"leaq 0(%rcx,%rax,{lType.type.sizeof()}), %rax # ptr-int")
+                    return lType,True,None
                 else:
                     print(f"TypeError: cannot use operator on types '{lType.toStr()}' and '{rType.toStr()}'.")
                     self.token().mark()
                     quit()
 
-                assert(False and "not pointer")
-            assert(False)
+            # both are pointers
+            assert(lType.isPointer() and rType.isPointer())
+            if rType.equals(lType):
+                if self.operator == "-":
+                    codectx.function_put_code(f"subq %rax,%rcx # rcx = rcx - rax")
+                    codectx.function_put_code(f"movq %rcx, %rax")
+                    codectx.function_put_code(f"movq $0, %rdx")
+                    size = rType.type.sizeof()
+                    codectx.function_put_code(f"movq ${size}, %rcx")
+                    codectx.function_put_code(f"idivq %rcx # rax = rax / sizeof({rType.type.toStr()})")
+                    t = ASTObjectTypeNumber(None,"i64")
+                    return t,True,None
+                else:
+                    print(f"TypeError: cannot use operator on types '{lType.toStr()}' and '{rType.toStr()}'.")
+                    self.token().mark()
+                    quit()
+            else:
+                print(f"TypeError: cannot use operator on two different pointer types: '{lType.toStr()}' and '{rType.toStr()}'.")
+                self.token().mark()
+                quit()
         else:
             print(f"error: operants not compatible {lType.toStr()} and {rType.toStr()}")
             self.token().mark()
